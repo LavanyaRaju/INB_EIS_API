@@ -1,0 +1,1768 @@
+package com.sbi.gls.globalApi.util;
+
+import java.util.Arrays;
+import java.util.Date;
+
+import org.apache.commons.lang3.time.FastDateFormat;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.models.ApiHeaderModel;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel;
+import com.sbi.gls.globalApi.models.CBDReconciliationReportModel;
+import com.sbi.gls.globalApi.models.GhubReqResDBInsertionModel;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.SbiEncResponseModel;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body;
+
+
+@Component
+public class SBIGHubUtil {
+
+	@Value("${sign_tag1}")
+	private String sign_tag1;
+	@Value("${sign_tag2}")
+	private String sign_tag2;
+	@Value("${SBI_CERTIFICATE_NO_SIGN}")
+	private String s_Cert_No;
+	@Value("${SBI_CERT_NAME}")
+	private String s_Cert_IssuerName;
+	@Value("${GHUB_URL}")
+	private String ghub_url;
+	
+	@Autowired
+	GlsEncryption glsEncryption;
+	@Autowired
+	SbiRequestResponseBodyGen sbiRequestResponseBodyGen;
+	@Autowired
+	private RestTemplate restTemplate;
+	
+	
+	
+	public String  getRequestBodyForGlobalHub(String pPlainMessagePayLoad,String pMessageType,SbiEncResponseModel encryptedResModel){
+		String requestBody="";
+		
+			String encodedEncryptedMsgPayLoad="";
+		
+			try{
+				//GENERATE 32BYTE RANDOM SYMMETRIC KEY 
+				byte[] randomSymmKey=glsEncryption.getSymmetricKey();
+						//printLogs("getGlobalApiRequestBody","randomSymmKey",Arrays.toString(randomSymmKey));		
+				
+				//GENERATE 16BYTE IV
+				byte[] iv=glsEncryption.getIvSpecification();
+						//printLogs("getGlobalApiRequestBody","iv",Arrays.toString(iv));	
+				
+				//CONCATINATE SYMMETRICKEY AND IV
+				byte[] symmKeyWithIv=glsEncryption.combineSymmetricAndIv(randomSymmKey,iv);
+						//printLogs("getGlobalApiRequestBody","symmKeyWithIv",Arrays.toString(symmKeyWithIv));	
+				
+				//ENCRYPT MESSAGE PAYLOAD BODY ---->>ENCRYPT MESSAGE PAYLOAD USING SYMMETRIC KEY,IV AND AUTH KEY(SECRET KEY) 
+				byte[] encryptedMsgPayLoad=glsEncryption.getEncryptedMessagePayLoad(pPlainMessagePayLoad,randomSymmKey,iv);
+						//printLogs("getGlobalApiRequestBody","encryptedMsgPayLoad",Arrays.toString(encryptedMsgPayLoad));	
+				
+				//ENCODE THE ENCRYPT MESSAGE PAYLOAD
+				encodedEncryptedMsgPayLoad=glsEncryption.getEncoding(encryptedMsgPayLoad);
+						//printLogs("getGlobalApiRequestBody","encodedEncryptedMsgPayLoad",encodedEncryptedMsgPayLoad);			
+				
+				//GENERATE DIGITALE SIGNATURE BY ENCRYPTING HASHED ENCRYPTED PAYLOAD
+				String payLoadDigiSign=glsEncryption.getDigitalSignature(encodedEncryptedMsgPayLoad.getBytes());
+						//printLogs("getPayLoadHeaderBodt","payLoadDigiSign",payLoadDigiSign);	
+				
+				//GET ENCRYPTED SYMMETRIC KEY DETAILS 
+				String encryptedSymmetricKey=glsEncryption.getEncryptedSymmetrickey(symmKeyWithIv);
+						//printLogs("getPayLoadHeaderBodt","encryptedSymmetricKey",encryptedSymmetricKey);
+											
+				
+				//CREATE FINAL REQUEST BODY WITH API HEADER AND MESSAGE BODY 
+				requestBody=sbiRequestResponseBodyGen.getNonISOSbiFinalRequestBody(encryptedSymmetricKey,payLoadDigiSign,pMessageType,encodedEncryptedMsgPayLoad,encryptedResModel);						
+				
+				
+				
+			}catch(Exception e){
+				//printLogs("encryptedMsgPayLoad","Exception",e.getMessage());
+				e.printStackTrace();
+			}	
+			return requestBody;
+	}
+	
+	public  String getDigitalSignatureForISOMessage(String pDocumentTag){
+		String isoDigitalSignature="";
+		try{
+			//GENERATE DIGITALE SIGNATURE BY ENCRYPTING HASHED ENCRYPTED PAYLOAD
+			isoDigitalSignature=sign_tag1+glsEncryption.getDigitalSignature(pDocumentTag.getBytes());
+					//printLogs("getPayLoadHeaderBodt","payLoadDigiSign",payLoadDigiSign);	
+			isoDigitalSignature+="|"+s_Cert_No+"|"+s_Cert_IssuerName+sign_tag2;
+			
+		}catch(Exception e){
+			//printLogs("encryptedMsgPayLoad","Exception",e.getMessage());
+			e.printStackTrace();
+		}	
+		
+		return isoDigitalSignature;
+	}
+	
+	public String getDecryptedMessagePayLoad(MessageModel pReceivedMessage) {
+		System.out.println("[ GlobalHubReconReportServiceImpl ][getDecryptedMessagePayLoad][ Execution Start   ]");
+		String decRequestBody="";
+			//ENCRYPTED SYMMETRIC KEY RECEIVED FROM IFTAS
+			String encryptedSymmetricKey=pReceivedMessage.getApiHeader().getEncryptedSymmetricKey();
+			//System.out.println("encryptedSymmetricKey="+encryptedSymmetricKey);
+			
+			//SECRETE KEY RECEIVED FROM IFTAS
+			String sharedSecreteKey=pReceivedMessage.getApiHeader().getSecretKey();
+			
+			
+			// DECODED PAYLOAD BODY
+			byte[] decodeMsgPayLoad=glsEncryption.getDecoding(pReceivedMessage.getEncryptedMessagePayload());
+			//DECODED SYMMETRIC KEY
+			byte[] decodeSymmKey=glsEncryption.getDecoding(encryptedSymmetricKey);
+			
+			//DECRYPT SYMMETRIC KEY
+			byte[] decryptedSymmetricKeyPayLoad = glsEncryption.decryptSymmKey(decodeSymmKey, sharedSecreteKey);
+			//System.out.println("decryptedSymmetricKeyPayLoad ::_ "+Arrays.toString(decryptedSymmetricKeyPayLoad)); 
+			
+			//DECRYPT MESSAGE PAYLOAD USING RECEIVED SYMMETRIC KEY WITH IV,AND SECRETE KEY 
+			byte[] decryptedRequestPayLoad = glsEncryption.decryptResponseMessage(decodeMsgPayLoad, decryptedSymmetricKeyPayLoad, sharedSecreteKey);
+			//System.out.println("decryptedRequestPayLoad=="+new String(decryptedRequestPayLoad));
+			
+			//CONVERT DECRYPTED MESSAGE PAYLOAD TO STRING
+			decRequestBody=new String(decryptedRequestPayLoad);
+			
+			System.out.println("[ GlobalHubReconReportServiceImpl ][getDecryptedMessagePayLoad][ Execution Finished   ]");
+		return decRequestBody;
+	}
+	public String postMessageToGhub(String pMsgPayLoad,String pEndPoint) {
+		String response=""; 
+		System.out.println("pMsgPayLoad::-"+pMsgPayLoad);
+		try{
+		if(pMsgPayLoad!=null && !pMsgPayLoad.equals("")){
+				String finalURL=ghub_url+pEndPoint;
+				System.out.println("Final URL::-"+finalURL);
+				HttpHeaders header = new HttpHeaders();
+				header.setContentType(MediaType.APPLICATION_JSON);
+				HttpEntity<String> entity = new HttpEntity<String>(pMsgPayLoad,header); 
+				response = restTemplate.postForObject(finalURL, entity, String.class);
+		}else{
+			response="Response body cann not be null";
+		}
+		}catch(Exception e){
+			System.out.println(" Exception  occurs during sending request to iftas team:::---\n\n\n "+e.getMessage()+"\n\n\n\n");
+			e.printStackTrace();
+		}
+		System.out.println("response Received From ::-"+response);
+	
+	return response;
+	}
+	
+	
+	public String getCurrDate(){
+		String dateFormat = "yyyyMMdd";
+		FastDateFormat dd = FastDateFormat.getInstance(dateFormat);
+		String date = dd.format(new Date());
+		return date;
+	}
+	
+	public String getCurrDateFormat(){
+		String dateFormat = "yyyy-MM-dd";
+		FastDateFormat dd = FastDateFormat.getInstance(dateFormat);
+		String date = dd.format(new Date());
+		return date;
+	}
+	
+	public  String getTimeStamp() {
+		String dateFormat = "yyyy-MM-dd'T'HH:mm:ss";
+		FastDateFormat dd = FastDateFormat.getInstance(dateFormat);
+	//	String date = dd.format(new Date(System.currentTimeMillis() - 3600 * 1000) );
+		String date = dd.format(new Date(System.currentTimeMillis()  ) );
+		return date+"Z";
+	}
+	
+	public void printLogs(String className,String methodName,String paramName,String param){
+		System.out.println(" [ "+className+" ]["+methodName+"][ "+paramName+"   ]---->>>"+param);
+	}
+}
+
+package com.sbi.gls.globalApi.util;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.Signature;
+import java.security.SignatureException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.concurrent.atomic.AtomicLong;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+import java.util.Arrays;
+import java.util.Base64;
+
+import org.apache.commons.lang3.StringUtils;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.util.ResourceUtils;
+
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+
+
+@Component
+public class GlsEncryption {
+	private static final int GCM_IV_LENGTH = 16;
+	private static AtomicLong sequnceNo = new AtomicLong(0000000200L);
+
+	 
+	@Value("${IFTAS_SECRET_KEY}")
+	private String iftas_Secrete_Key;
+	@Value("${sign_tag1}")
+	private String xmlSignTag;
+	//32BYTE RANDOM SYMMETRIC KEY
+	public byte[] getSymmetricKey(){
+			byte[] symmetricKey = new byte[32];
+			new SecureRandom().nextBytes(symmetricKey);
+		return symmetricKey;
+	}
+	
+	//32BYTE IV SPECIFICATIONS
+	public byte[] getIvSpecification(){
+		byte[] iv = new byte[16];
+		new SecureRandom().nextBytes(iv);
+		return iv;
+	}
+	
+	//COMBINE SYMMETRIC KEY AND IV 
+	public byte[] combineSymmetricAndIv(byte[] symmKey,byte[] iv){
+		
+			ByteBuffer  keyIvCpbine=ByteBuffer.allocate(symmKey.length+iv.length);
+						keyIvCpbine.put(symmKey);
+						keyIvCpbine.put(iv);
+		
+		return keyIvCpbine.array();
+	}
+
+	
+	//AES ENCRYPTION TO ENCRYPT MESSAGE PAYLOAD 
+	public byte[] getEncryptedMessagePayLoad(String plainMessagePayLoad, byte[] randomSymmKey, byte[] iv) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
+		// TODO Auto-generated method stub
+		System.out.println("[ GlsEncryption ][getEncryptedMessagePayLoad][ Execution Start   ]");
+		byte[] encryptedMessagePayLoad=null;
+		
+		byte[] associateData=iftas_Secrete_Key.getBytes();
+		
+		byte[] toEncrypt=plainMessagePayLoad.getBytes();
+		
+			//CONVERT RANDOM KEY TO SECRETE KEY
+			SecretKey symmetrickey = new SecretKeySpec(randomSymmKey, 0, randomSymmKey.length, "AES");
+		
+			Cipher aesGCMCipher = Cipher.getInstance("AES/GCM/NoPadding");
+				//IV
+				GCMParameterSpec gcmParamSpec=new GCMParameterSpec(GCM_IV_LENGTH * 8, iv);
+				//SYMMETRIC KEY
+			   aesGCMCipher.init(Cipher.ENCRYPT_MODE, symmetrickey, gcmParamSpec);	//, new SecureRandom().getInstance("AES")
+			   //AUTH KEY
+			   aesGCMCipher.updateAAD(associateData);
+			   
+			   //CONVERT MESSAGE PAYLOAD FROM STRING TO BYTE[]
+			   byte[] messagePayLoad=plainMessagePayLoad.getBytes();
+			   
+			   //ENCRYPT MESSAEG PAYLOAD USING (SYMMETRIC KEY,IV,AUTHKEY)
+			   encryptedMessagePayLoad = aesGCMCipher.doFinal(toEncrypt);
+				
+			
+		
+		System.out.println("[ GlsEncryption ][getEncryptedMessagePayLoad][ Execution Finished   ]");
+		
+		
+		return encryptedMessagePayLoad;
+	}
+	
+	//GENERATE DIGITAL SIGNATURE FROM ENCRYPTED MESSAGE PAYLOAD
+	public String getDigitalSignature(byte[] encryptedMessagePayLoad) throws NoSuchAlgorithmException, InvalidKeySpecException, IOException{
+		String digitalSignature="";
+		System.out.println("[ GlsEncryption ][getDigitalSignature][ Execution Start   ]");
+			
+		Signature digiSignature;
+		byte[] signedValue;
+		PrivateKey privateKey=getPrivateKey();
+		
+		try {
+			digiSignature = Signature.getInstance("SHA256withRSA");
+			digiSignature.initSign(privateKey);
+			digiSignature.update(encryptedMessagePayLoad);
+			signedValue = digiSignature.sign();
+			
+		} catch (Exception e) {
+			return null;
+		} 
+		
+		digitalSignature=getEncoding(signedValue);
+		//System.out.println(" [ GlsEncryption ][getDigitalSignature][ digitalSignature  ] "+digitalSignature);
+		System.out.println("[ GlsEncryption ][getDigitalSignature][ Execution Finished   ]");
+		
+		return digitalSignature;
+		
+	}
+	//VALIDATE DIGITAL SIGNATURE
+	public boolean validateDigitalSignature(MessageModel pMessage){
+		boolean signatureValidationResult=false;
+		System.out.println("[ GlsEncryption ][validateDigitalSignature][ Execution Start   ]");
+		//ENCRYPTED MESSAGE PAYLOAD RECEIVED FROM IFTAS
+		String encryptedMessagePayLoad=pMessage.getEncryptedMessagePayload();	
+		//System.out.println("encryptedMessagePayLoad="+encryptedMessagePayLoad);
+		
+		String digiSignReceived= pMessage.getApiHeader().getFullPayLoadDigitalSignature();
+		//System.out.println("digiSignReceived ::_ "+digiSignReceived); 
+		byte[] signForVerification=getDecoding(digiSignReceived);
+			Signature digiSignature;
+			try{
+				File cert = ResourceUtils.getFile("classpath:RBIH0000000.cer");
+				
+				PublicKey senderPublicKey=getPubKeyFromIftasCert(getContent(cert));
+				
+					digiSignature = Signature.getInstance("SHA256withRSA");
+					digiSignature.initVerify(senderPublicKey);
+					digiSignature.update(encryptedMessagePayLoad.getBytes());
+					signatureValidationResult = digiSignature.verify(signForVerification);
+					
+				} catch (Exception e) {
+					return signatureValidationResult;
+				} 
+			System.out.println("[ GlsEncryption ][validateDigitalSignature][ signatureValidationResult   ]"+signatureValidationResult);		
+		System.out.println("[ GlsEncryption ][validateDigitalSignature][ Execution Finished   ]");
+		return signatureValidationResult;
+	}
+	//RSA ENCRYPTION TO ENCRYPT MESSAGE PAYLOAD 
+
+	public boolean validateDigitalSignature(String pDigiSignReceived){
+		boolean validationResult=false;
+		
+		
+		
+		return validationResult;
+	}
+	
+	public String getEncryptedSymmetrickey(byte[] symmKeyWithIv) throws Exception {
+		String encryptedSymmKey="";
+		System.out.println("[ GlsEncryption ][getEncryptedSymmetrickey][ Execution Start   ]");
+		File cert = ResourceUtils.getFile("classpath:RBIH0000000.cer");
+		//PUBLIC KEY
+				PublicKey publicKey = getPubKeyFromIftasCert(getContent(cert));
+		
+		//ENCRYPT CONCATINATED SYMMETRIC KEY AND IV USING PUBLIC KEY AND RETURN BASE64 ENCODED STRING
+				encryptedSymmKey =encryptionWithRSA(symmKeyWithIv, publicKey);
+				//System.out.println("\n encryptedSymmKey : "+encryptedSymmKey);		
+				
+				
+		System.out.println("[ GlsEncryption ][getEncryptedSymmetrickey][ Execution Finished   ]");
+		return encryptedSymmKey;
+	}
+	
+	//ENCRYPTIONS
+		public static String encryptionWithRSA(byte[] encyptPayLoad, Key pk) throws Exception {
+			Cipher cipher = Cipher.getInstance("RSA");
+			cipher.init(Cipher.ENCRYPT_MODE, pk);
+			return Base64.getEncoder().encodeToString(cipher.doFinal(encyptPayLoad));
+		}
+	//DECRYPTIONS
+		public byte[] decryptSymmKey(byte[] decodedSymmKey,String secreteKey){
+			byte[] decSymmKey=null;
+			try{
+				PrivateKey privateKey=getPrivateKey();
+				Cipher cipher = Cipher.getInstance("RSA");
+				cipher.init(Cipher.DECRYPT_MODE, privateKey);
+				decSymmKey=cipher.doFinal(decodedSymmKey);
+			}catch(Exception e){e.printStackTrace();}
+			
+			return decSymmKey;
+		}
+		public byte[] decryptResponseMessage(byte[] decodedMsg ,byte[] decryptedSymmKey, String secreteKey){
+			byte[] decResMsg=null;	
+			try{
+				byte[] symmkeyshared=Arrays.copyOfRange(decryptedSymmKey, 0, 32);
+				//System.out.println(" symmkeyshared ::"+Arrays.toString(symmkeyshared));
+				byte[] iv=Arrays.copyOfRange(decryptedSymmKey, 32,decryptedSymmKey.length);
+				//System.out.println(" iv ::"+Arrays.toString(iv));
+				SecretKey originalKey = new SecretKeySpec(symmkeyshared, 0, symmkeyshared.length, "AES");
+				//System.out.println(" 1 ::");
+				Cipher aesCipher = Cipher.getInstance("AES/GCM/NoPadding");
+				//System.out.println(" 2 ::");
+				GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_IV_LENGTH * 8, iv);
+				//System.out.println(" 3 ::");
+				aesCipher.init(Cipher.DECRYPT_MODE, originalKey, gcmParameterSpec);
+				//System.out.println(" 4 ::");
+				aesCipher.updateAAD(secreteKey.getBytes());
+				//System.out.println(" 5 ::");
+				decResMsg = aesCipher.doFinal(decodedMsg);
+				//System.out.println(" result ::"+Arrays.toString(decResMsg));
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+			
+			
+			return decResMsg;
+		}
+		
+	//Commom Methods 
+	//ENCODE GIVEN BYTE AND CONVERT SAME INTO STRING
+	public static String getEncoding(byte[] byteInput) {
+		return  Base64.getEncoder().encodeToString(byteInput);
+		
+	}
+	
+	public static byte[] getDecoding(String sInput) {
+		return  Base64.getDecoder().decode(sInput);
+		
+	}
+	
+	 public static String getNext() {
+	    	return StringUtils.leftPad(String.valueOf(sequnceNo.getAndIncrement()), 10,"0");
+	 }
+	 public static PublicKey getPubKeyFromIftasCert(String certificateString) throws IOException, GeneralSecurityException {
+			PublicKey key = null;
+				File file = new File(certificateString);
+					if (file.exists()) {
+						key = getPubKey(certificateString);
+					} else {
+						X509Certificate cer = convertToX509Cert(certificateString);
+						key = cer.getPublicKey();
+					}
+			return key;
+		}
+	//PUBLIC KEY OPERATIONS
+		public static PublicKey getPubKey(String filename) throws IOException, GeneralSecurityException {
+			CertificateFactory fact = CertificateFactory.getInstance("X.509");
+			FileInputStream is = new FileInputStream(filename);
+			X509Certificate cer = (X509Certificate) fact.generateCertificate(is);
+			PublicKey key = cer.getPublicKey();
+			return key;
+		}
+		
+		public static PublicKey getSenderPublicKey(String pPublicKey) throws CertificateException{
+			 return convertToX509Cert(pPublicKey).getPublicKey();
+		}
+		
+		public static X509Certificate convertToX509Cert(String certificateString) throws CertificateException {
+			X509Certificate certificate = null;
+			CertificateFactory cf = null;
+			try {
+				if ((certificateString != null) && (!certificateString.trim().isEmpty())) {
+					certificateString = certificateString.replace("-----BEGIN CERTIFICATE-----\n", "")
+							.replace("-----END CERTIFICATE-----", "").replaceAll("\n", "");
+					byte[] certificateData = Base64.getDecoder().decode(certificateString);
+					cf = CertificateFactory.getInstance("X509");
+					certificate = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certificateData));
+				}
+			} catch (CertificateException e) {
+				throw new CertificateException(e);
+			}
+			return certificate;
+		}
+		
+		
+	 private PrivateKey getPrivateKey() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException {
+			System.out.println("[ RSAEncryptionWithEIS ][getPrivateKey][ Execution Start   ]");
+			File privKeyFile = ResourceUtils.getFile("classpath:GlsPrivateKeyNew.pem");
+			String privateKeyString = getContent(privKeyFile);
+			//System.out.println(" Orignal Private From File ::- " + privateKeyString);
+			privateKeyString = privateKeyString.replaceAll("-----END PRIVATE KEY-----", "")
+					.replaceAll("-----BEGIN PRIVATE KEY-----", "").replaceAll("\n", "");
+			//System.out.println(" Altered privateKeyString " + privateKeyString);
+
+			byte[] keyByte = getDecoding(privateKeyString);
+
+			KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+			PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyByte);
+			PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+
+			System.out.println("[ RSAEncryptionWithEIS ][getPrivateKey][ Execution Finished   ]");
+			return privateKey;
+	}
+	 
+	 
+	 public static String getContent(File file) throws IOException {
+			String strKeyPEM = "";
+			@SuppressWarnings("resource")
+			BufferedReader br = new BufferedReader(new FileReader(file));
+			String line;
+			while ((line = br.readLine()) != null) {
+				if (strKeyPEM.length() > 4000) {
+					throw new IOException();
+				} else {
+					strKeyPEM += line + "\n";
+				}
+			}
+			br.close();
+			return strKeyPEM;
+		}
+
+	public boolean verifyDigitalSignature(BusinessApplicationHeaderV03 pBussMessageHeader, String pMessageDocTag) {
+		// TODO Auto-generated method stub
+		String encryptedDocTag="";
+		try {
+			encryptedDocTag=getDigitalSignature(pMessageDocTag.getBytes());
+			System.out.println("encryptedDocTag:-"+encryptedDocTag);
+			System.out.println("pBussMessageHeader.getSgntr() :-"+pBussMessageHeader.getSgntr());
+			
+			String digiSignReceived=pBussMessageHeader.getSgntr().substring(xmlSignTag.length(),pBussMessageHeader.getSgntr().indexOf("|"));System.out.println("digiSignReceived:-"+digiSignReceived);
+			String certificateNo=pBussMessageHeader.getSgntr().substring(digiSignReceived.length(),pBussMessageHeader.getSgntr().substring(digiSignReceived.length()).indexOf("|"));System.out.println("certificateNo::-"+certificateNo);
+			String certificateIssuerName=pBussMessageHeader.getSgntr().substring(certificateNo.length(),pBussMessageHeader.getSgntr().substring(certificateNo.length()).indexOf("</XMLSgntrs>"));System.out.println("certificateIssuerName::-"+certificateIssuerName);
+			
+			
+		} catch (NoSuchAlgorithmException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (InvalidKeySpecException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		return false;
+	}
+
+	
+}
+package com.sbi.gls.globalApi.util;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Arrays;
+import java.util.Base64;
+
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+import org.springframework.util.ResourceUtils;
+
+import sun.misc.BASE64Decoder;
+
+public class iftasenc {
+
+	private static final int GCM_IV_LENGTH = 16;
+
+	/*
+	 * Decrypt given cipher byte array and key byte array into string
+	 */
+	public static String decryptToString(byte[] toDecrypt, byte[] key, byte[] iv, String authKey) throws Exception {
+		return new String(decryptToByteArray(toDecrypt, key, iv, authKey));
+	}
+
+	/*
+	 * Decrypt given cipher byte array and key byte array
+	 */
+	public static byte[] decryptToByteArray(byte[] toDecrypt, byte[] keyBytes, byte[] iv, String authKey)
+			throws Exception {
+
+		System.out.println("decryptMessagePayload Before symmetricKey Encryption");
+
+		byte[] associatedData = authKey.getBytes();
+		SecretKey key = new SecretKeySpec(keyBytes,0,keyBytes.length, "AES");
+		Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+
+		// Initialize cipher with IV
+		GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_IV_LENGTH * 8, iv);
+		cipher.init(Cipher.DECRYPT_MODE, key, gcmParameterSpec);
+		cipher.updateAAD(associatedData);
+
+		// Decrypt the ciphertext
+		byte[] decrypted = cipher.doFinal(toDecrypt);
+
+		System.out.println("decryptMessagePayload After symmetricKey Encryption");
+
+		return decrypted;
+	}
+
+	/*
+	 * Encrypt given message string and public key into byte array
+	 */
+	public static byte[] encryptStringToByteArray(PublicKey publicKey, String message) throws Exception {
+		return encryptByteArray(publicKey, message.getBytes());
+	}
+
+	/*
+	 * Encrypt given message byte array and public key
+	 */
+	public static byte[] encryptByteArray(PublicKey publicKey, byte[] message) throws Exception {
+		// log.info("encryptMessagePayload Before symmetricKey Encryption");
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+
+		byte[] encrypt = cipher.doFinal(message);
+		// log.info("encryptMessagePayload After symmetricKey Encryption");
+		return encrypt;
+	}
+
+	public static void main(String[] args) throws Exception {
+		byte[] skey = {-83, 32, -120, 121, 68, 51, 46, 83, 82, -18, -48, 96, -115, -49, 42, -41, -97, 33, -119, 23, 11, 118, 7, 23, -89, -78, -2, 9, -35, 74, 53, -73};
+		byte[] iv = {87, 71, 70, 73, 40, 87, 43, 21, 21, -87, 91, 18, -61, -13, -75, 126};
+		
+		String msg = "{   \"header\": {     \"messageDefinitionIdentifier\": \"Non-ISO Business\",     \"businessMessageID\": \"SBIN20241230IN00000405\",     \"businessService\": \"CBDOpenForBusiness\"   },   \"body\": {     \"participantCode\": \"SBIN0IN0001\"   } }";
+		byte[] enc = encryptByteArrayUsingGCM(msg.getBytes(),skey,iv,"1df5bde2-0efa-5f75-63d6-04a126b7f63f");
+		
+		
+		String encmsg = Base64.getEncoder().encodeToString(enc);
+		System.out.println("enc "+encmsg);
+		System.out.println("encarr "+Arrays.toString(enc));
+		
+		byte[] decode = Base64.getDecoder().decode(encmsg);
+		
+		System.out.println("decode "+Arrays.toString(decode));
+		
+		System.out.println("dec "+new String(decryptToByteArray(decode,skey,iv,"1df5bde2-0efa-5f75-63d6-04a126b7f63f")));
+	}
+	
+	/*
+	 * Decrypt given cipher byte array and private key into string
+	 */
+	public static String decryptToString(PrivateKey privateKey, byte[] toDecrypt) throws Exception {
+		return new String(decryptToByteArray(privateKey, toDecrypt));
+	}
+
+	/*
+	 * Decrypt given cipher byte array and private key
+	 */
+	public static byte[] decryptToByteArray(PrivateKey privateKey, byte[] encrypted) throws Exception {
+		// log.info("decryptMessagePayload Before symmetricKey Decryption");
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.DECRYPT_MODE, privateKey);
+
+		byte[] decrypt = cipher.doFinal(encrypted);
+		// log.info("decryptMessagePayload After symmetricKey Decryption");
+
+		return decrypt;
+	}
+	
+	private static PrivateKey getPrivateKeyNew() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException {
+		System.out.println("[ RSAEncryptionWithEIS ][getPrivateKey][ Execution Start   ]");
+		File privKeyFile = ResourceUtils.getFile("classpath:GHUB_privatekey.pem");
+		String privateKeyString = getContent(privKeyFile);
+		System.out.println(" Orignal Private From File ::- " + privateKeyString);
+		privateKeyString = privateKeyString.replaceAll("-----END PRIVATE KEY-----", "")
+				.replaceAll("-----BEGIN PRIVATE KEY-----", "").replaceAll("\n", "");
+		System.out.println(" Altered privateKeyString " + privateKeyString);
+
+		byte[] keyByte = Base64.getDecoder().decode(privateKeyString);
+
+		KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyByte);
+		PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+
+		System.out.println("[ RSAEncryptionWithEIS ][getPrivateKey][ Execution Finished   ]");
+		return privateKey;
+	}
+	
+	public static String getContent(File file) throws IOException {
+		String strKeyPEM = "";
+		@SuppressWarnings("resource")
+		BufferedReader br = new BufferedReader(new FileReader(file));
+		String line;
+		while ((line = br.readLine()) != null) {
+			if (strKeyPEM.length() > 4000) {
+				throw new IOException();
+			} else {
+				strKeyPEM += line + "\n";
+			}
+		}
+		br.close();
+		return strKeyPEM;
+	}
+	
+	
+	public static byte[] encryptByteArrayUsingGCM(byte[] toEncrypt, byte[] keyBytes, byte[] iv, String authKey)
+			throws Exception {
+
+		System.out.println("encryptMessagePayload Before symmetricKey Encryption");
+
+		SecretKey key = new SecretKeySpec(keyBytes,0,keyBytes.length, "AES");
+
+		byte[] associatedData = authKey.getBytes();
+		Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+
+		// Initialize cipher with IV
+		GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_IV_LENGTH * 8, iv);
+		cipher.init(Cipher.ENCRYPT_MODE, key, gcmParameterSpec);
+		cipher.updateAAD(associatedData);
+
+		// Encrypt the plaintext
+		byte[] ciphertext = cipher.doFinal(toEncrypt);
+
+		System.out.println("encryptMessagePayload After symmetricKey Encryption");
+
+		return ciphertext;
+	}
+}
+package com.sbi.gls.globalApi.util;
+
+import java.io.ByteArrayInputStream;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.time.FastDateFormat;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import com.sbi.gls.globalApi.models.ValidationResultModel;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+
+@Component
+public class ResponseValidator {
+	@Value("${IFTAS_ID}")
+	private String receiver_ID;
+	
+	@Value("${ISO_MESSAGE_VERSIONS}")
+	private String iso_message_versions;
+	
+	@Value("${IFTAS_CERTIFICATE_NO}")
+	private String r_Cert_No;
+	@Value("${IFTAS_DIGI_SIGN_CERTIFICATE_NO}")
+	private String digiSignCertNo;
+	
+	@Value("${IFTAS_CERT_NAME}")
+	private String r_Cert_IssuerName;
+	
+	@Autowired
+	GlsEncryption glsEncryption;
+		
+	public static FastDateFormat dateFormat = FastDateFormat.getInstance("yyyyMMdd");
+	
+	
+	/*public static void main(String[] args) {
+		ResponseValidator r=new ResponseValidator();
+		r.validateBusinessMessageId("GHUB20250121IN00000120");
+		r.validateBusinessService("CBDRejectedByParticipant");
+	}*/
+	//BAH (ISO HEADER)
+	public ValidationResultModel validateIsoHeaderTag(BusinessApplicationHeaderV03 businessHeader,String senderPublicKey,String pMsgId,String pCredDtTm,String pDocTag ) throws ParseException{
+		boolean validationResult=true;
+		
+		ValidationResultModel validationResultModel= new ValidationResultModel();
+		/*System.out.println("pCredDtTm::"+pCredDtTm);
+		*/
+		String errorCode="",errorDesc="";
+		//pCredDtTm="2025-04-03T11:05:30Z";
+		if(!validateParticipantCode(businessHeader.getFr().getFIId().getFinInstnId().getClrSysMmbId().getMmbId())){//SENDER'S ID 
+			errorCode="E001";
+			errorDesc="The Participant ID of the sender is invalid";
+			//validationResult=false;
+		}else if(!validateBusinessMessageId(businessHeader.getBizMsgIdr()) || !businessHeader.getBizMsgIdr().equals(pMsgId) ){//BUSINESS MESASGE ID
+			errorCode="E023";
+			errorDesc="The BizMsgIdr is invalid";
+			//validationResult=true;
+		}else if(!validateMsgDef(businessHeader.getMsgDefIdr())){//BUSINESS DEFINATION IDENTIFIER
+			errorCode="E025";
+			errorDesc="The Message Definition is invalid";
+			//validationResult=true;
+		}else if(!validateBusinessService(businessHeader.getBizSvc())){//BUSINESS MESSAGE SERVICE
+			errorCode="E026";
+			errorDesc="The Business Service is invalid";
+			//validationResult=true;
+		}else if(!validateCerBusinessDate(businessHeader.getCreDt()) || !businessHeader.getCreDt().equals(pCredDtTm)){//MESSAGE CREATION DATE 
+			errorCode="E028";
+			errorDesc="The Created Date Time is out of range";
+			//validationResult=true;
+		}else if(!validateBahSignature(businessHeader.getSgntr(),senderPublicKey,pDocTag,businessHeader.getFr().getFIId().getFinInstnId().getClrSysMmbId().getMmbId()) ){
+			errorCode="E014";
+			errorDesc="The digital signature of the sender in the API header is not valid";
+			//validationResult=true;
+		}else{
+			errorCode="S002";
+			errorDesc="The message has been received by the destination and successfully validated";
+			//validationResult=true;
+		} 
+		System.out.println("ErrorCode::"+errorCode);
+		System.out.println("ErrorDesc::"+errorDesc);
+		validationResultModel.setError_code(errorCode);
+		validationResultModel.setError_desc(errorDesc);
+		
+		return validationResultModel;
+	}
+	
+	//MESSAGE DEFINITION IDENTIFIER
+	public boolean validateMessageDefId(String pIdentifiers){
+		boolean validationResult=true;
+		//System.out.println(pIdentifiers);
+		if(pIdentifiers!=null && !pIdentifiers.equals("Non-ISO Business")&&  !pIdentifiers.equals("Non-ISO Admin")){
+			validationResult=false;
+		}
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//BUSINESS MESSAGE ID
+	public boolean validateBusinessMessageId(String pBusinessMessageId){
+		boolean validationResult=false;
+		int requiredLength=22;
+		if(validateLengthOfInput(pBusinessMessageId,requiredLength)){
+			String participateId=pBusinessMessageId.substring(0, 4);System.out.println(participateId);
+			String currDateValue=pBusinessMessageId.substring(4,12);System.out.println(currDateValue);
+			String countryCode=pBusinessMessageId.substring(12, 14);System.out.println(countryCode);
+			String sequenceNo=pBusinessMessageId.substring(14, 22);System.out.println(sequenceNo);
+			
+			if(participateId!=null &&( !participateId.equals("GHUB")&& !participateId.equals("MASH")&& !participateId.equals("CBAU"))){
+				validationResult=false;
+			}else if(currDateValue!=null && !currDateValue.equals(getTodaysDate())){
+				validationResult=false;
+			}else if(countryCode!=null && (!countryCode.equals("IN") && !countryCode.equals("SA") && !countryCode.equals("AE"))){
+				validationResult=false;
+			}else if(sequenceNo!=null && !isNumber(sequenceNo)){
+				validationResult=false;
+			}else{
+				validationResult=true;
+			}
+		}
+		System.out.println("validateBusinessMessageId for "+validationResult);
+		return validationResult;
+	}
+	 
+	//BUSINESS SERVICE
+	public boolean validateBusinessService(String pBusinessService){
+		boolean validationResult=true;
+System.out.println(pBusinessService);
+		ArrayList<String> businessServiceList=new ArrayList<>();
+						  businessServiceList.add("CBDResendResponseRequest");
+						  businessServiceList.add("CBDCertificateProliferation");
+						  businessServiceList.add("CBDReconciliationReport");
+						  businessServiceList.add("CBDAcceptedByParticipant");
+						  businessServiceList.add("CBDRejectedByParticipant");
+						  businessServiceList.add("CBDResendResponse");
+		
+		if(	pBusinessService.length()>35 &&	!businessServiceList.contains(pBusinessService))validationResult=false;
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//PARTICIPANT CODE 
+	public boolean validateParticipantCode(String pParticipateCode){
+		boolean validationResult=true;
+		int requiredLength=11;
+		if(!validateLengthOfInput(pParticipateCode,requiredLength)){
+			validationResult=false;
+		}
+		return validationResult;
+	}
+	
+	//MESSAGE DEFINITION
+	public boolean validateMsgDef(String pMessageDefinition){
+		boolean validationResult=false;
+		System.out.println(pMessageDefinition);
+		List<String> isoMessageVersions=Arrays.asList(iso_message_versions.split(","));
+		//isoMessageVersions.stream().forEach(s-> System.out.println(s));
+				if(pMessageDefinition!=null && (isoMessageVersions.contains(pMessageDefinition))){
+					validationResult=true;
+				}
+		return validationResult;
+	}
+	
+	//RESPONSE FOUND
+	public boolean validateResponseFound(String pResponseFound){
+		System.out.println(pResponseFound);
+		return Boolean.parseBoolean(pResponseFound); 
+	}
+	
+	//RESPONSE MESSAGE
+	public boolean validateResponseMessage(String pResponseFound,String pResponseMessage){
+		boolean validationResult=false;
+		System.out.println(pResponseFound+"~"+pResponseMessage);
+		if(Boolean.parseBoolean(pResponseFound) && pResponseMessage!=null && !pResponseMessage.equals("")){
+			validationResult=true;
+		}
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//CERTIFICATE ISSUER
+	public boolean validateCertificateIssuer(String pCertificateIssuer){
+		boolean validationResult=false; 
+		System.out.println(pCertificateIssuer);
+		if(pCertificateIssuer!=null && pCertificateIssuer.equals(r_Cert_IssuerName))validationResult=true;
+		
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//CERTIFICATE SERIAL NUMBER
+	public boolean validateCertificateSerialNo(String pCertificateNo){
+		boolean validationResult=false; 
+		System.out.println(pCertificateNo);
+		if(pCertificateNo.equals(r_Cert_No))validationResult=true;
+		
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//PUBLIC KEY
+	public boolean validatePublicKey(String pPublicKey){
+		boolean validationResult=true; 
+		System.out.println(pPublicKey);
+		/*File cert = ResourceUtils.getFile("classpath:RBIH0000000.cer");
+		
+		PublicKey senderPublicKey=glsEncryption.getPubKeyFromIftasCert(glsEncryption.getContent(cert));
+		Base64.getEncoder().encodeToString(senderPublicKey);
+		if(pParticipateCode.equals(receiver_ID))validationResult=true;*/
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//EXPIRE DATE
+	public boolean validateCerExpiryDate(String pExpireDate) throws ParseException{
+		boolean validationResult=false; 
+		System.out.println(pExpireDate);
+		if(getDateOf(pExpireDate).after(getDateOf(getTodaysDate()) ) && !getDateOf(pExpireDate).before(getDateOf(getTodaysDate()) )){validationResult=true;}
+	
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//BUSINESS DATE
+	public boolean validateCerBusinessDate(String pBusinessDate) throws ParseException{
+			boolean validationResult=false; 
+			System.out.println(pBusinessDate);
+			SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH);
+			SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
+			Date bussDateReceived=formatter.parse(pBusinessDate);
+			System.out.println(dateFormat.format(bussDateReceived)+"---||---"+getTodaysDate());
+			
+			if(dateFormat.format(bussDateReceived).equals(getTodaysDate())){validationResult=true;}
+			
+			System.out.println(validationResult);
+			return validationResult;
+		}
+	
+	//REPORT DETAILS
+	public boolean validateReconReportDtls(int numberOfEntries,ArrayList<String> reconRepo ){
+		boolean validationResult=false; 
+		System.out.println(numberOfEntries);
+		if(numberOfEntries==reconRepo.size())validationResult=true;
+		
+		System.out.println(validationResult);
+		return validationResult;
+	}
+	
+	//SIGNATURE TAG OF ISO MESSAGE FROM BAH
+	public boolean validateBahSignature(String pDigiSignReceived,String pSenderPublicKey,String pDocTagReceived,String pPartiId) {
+		boolean signatureValidationResult=false;
+		
+		System.out.println("[ GlsEncryption ][validateBahSignature][ Validation for BAH digi sign is  initiated   ]");
+		//ENCRYPTED MESSAGE PAYLOAD RECEIVED FROM IFTAS
+		//System.out.println("pDigiSignReceived ::_"+pDigiSignReceived); 
+		//System.out.println("pDocTagReceived="+pDocTagReceived);
+		//System.out.println("pSenderPublicKey="+pSenderPublicKey);
+		
+		System.out.println("pPartiId="+pPartiId);
+		
+		/*if(pPartiId!=null && pPartiId.equals("GHUBIN00001")){
+			signatureValidationResult=true;
+		}else{*/
+		byte[] signForVerification=glsEncryption.getDecoding(pDigiSignReceived);
+		byte[] docTagByteFormat=pDocTagReceived.getBytes();
+		Signature digiSignature;
+			try{
+				PublicKey senderPublicKey=glsEncryption.getSenderPublicKey(pSenderPublicKey);
+				
+					digiSignature = Signature.getInstance("SHA256withRSA");
+					digiSignature.initVerify(senderPublicKey);
+					digiSignature.update(docTagByteFormat);
+					signatureValidationResult = digiSignature.verify(signForVerification);
+					
+				} catch (Exception e) {
+					e.printStackTrace();
+					return signatureValidationResult;
+				} 
+		/*}	*/
+			System.out.println("[ GlsEncryption ][validateBahSignature][ Validation result for xml digital signature (BAH SIgnature) ]"+signatureValidationResult);		
+		System.out.println("[ GlsEncryption ][validateBahSignature][ Execution Finished   ]");
+		return signatureValidationResult;
+	}
+	
+	private PublicKey getSenderPublicKey(String pSenderPublicKey) throws CertificateException {
+		byte[] certificateData = Base64.getDecoder().decode(pSenderPublicKey);
+		CertificateFactory cf = CertificateFactory.getInstance("X509");
+		X509Certificate certificate = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certificateData));
+		return certificate.getPublicKey();
+	}
+
+	private boolean validateLengthOfInput(String pBusinessMessageId, int requiredLength) {
+		boolean lengthResult=false;
+		System.out.println(pBusinessMessageId);
+		if(pBusinessMessageId.length()==requiredLength){
+			lengthResult=true;
+		}		
+		return lengthResult;
+	}
+	
+	private boolean isNumber(String pIntValue){
+		 try {
+	            Integer.parseInt(pIntValue);
+	            return true;
+	        } catch (NumberFormatException e) {
+	                return false;
+	        }
+		
+	}
+	private String getTodaysDate(){
+		return dateFormat.format(new Date());
+	}
+	
+	private Date getDateOf(String pDate) throws ParseException{
+		return dateFormat.parse(pDate);
+	}
+
+}
+package com.sbi.gls.globalApi.util;
+
+import java.io.Writer;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.SQLException;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.stereotype.Component;
+
+import oracle.jdbc.OracleTypes;
+import oracle.sql.CLOB;
+@Component
+public class SbiConverter {
+	@Autowired
+	private  JdbcTemplate jdbcTemplate;
+	
+	public  CLOB getCLOB(String Data,Connection con) throws SQLException{
+		
+		                 CLOB tempClob = null;
+		                 try{
+		                	 
+		                	// logger.info("Line 1") ;
+		                	 
+		                             // If the temporary CLOB has not yet been created, create new		                	 
+				                	 CallableStatement createTemporaryStmt = con.prepareCall("{ call DBMS_LOB.CREATETEMPORARY(?,TRUE)}");
+				                	 
+
+				                	 
+				                     createTemporaryStmt.registerOutParameter(1, OracleTypes.CLOB);
+				                     createTemporaryStmt.execute();
+				                     tempClob =(CLOB) createTemporaryStmt.getObject(1);
+				                     
+				                     if( tempClob==null){
+				                          System.out.println("Fail to create a temporary lob");
+				                     }
+				                 
+		                              //   Open the temporary CLOB in readwrite mode to enable writing
+		                             tempClob.open(CLOB.MODE_READWRITE); 
+		                             
+		                             System.out.println("RegulatoryCheckDao:Line 3") ;
+		                        	 
+		                             // Get the output stream to write
+		                             Writer tempClobWriter = tempClob.getCharacterOutputStream(); 
+		                             // Write the data into the temporary CLOB
+		                             tempClobWriter.write(Data); 
+
+		                             // Flush and close the stream
+		                             tempClobWriter.flush();
+		                             
+		                             tempClobWriter.close(); 
+
+		                             // Close the temporary CLOB 
+		                             tempClob.close();   
+		                             //conn.close();
+
+		                 } catch(SQLException sqlexp){    
+		                             tempClob.freeTemporary(); 
+		                 } catch(Exception exp){
+		                             tempClob.freeTemporary(); 
+		                 }
+		                /* logger.info("RegulatoryChecksDaoImpl:getCLOB(String Data, Connection conn) "+LoggingConstants.METHODEND);*/
+		                 return tempClob; 
+		     }
+}
+
+package com.sbi.gls.globalApi.util;
+
+import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.xml.sax.SAXException;
+
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+
+
+
+@Component
+public class SbiISOConvUtil {
+	ObjectMapper mapper=new ObjectMapper();
+	@Value("${sign_tag1}")
+	private String sign_tag1;
+	
+	@SuppressWarnings("rawtypes")
+	public String getISOXmlToPojoString(String reqString, Class className)
+			throws SAXException, ParserConfigurationException, IOException {
+		StringReader sr = new StringReader(reqString);
+		JAXBContext jaxbContext;
+		try {
+			jaxbContext = JAXBContext.newInstance(className);
+			Unmarshaller unmarshaller1 = jaxbContext.createUnmarshaller();
+			String apiHdrModel = new ObjectMapper().writeValueAsString(unmarshaller1.unmarshal(sr));
+			String strn = apiHdrModel.contains("\"value\":")?apiHdrModel.substring(apiHdrModel.indexOf("\"value\":")+8,apiHdrModel.indexOf(",\"nil\"")):apiHdrModel;
+			//System.out.println("Returning response ::="+apiHdrModel.substring(apiHdrModel.indexOf("\"value\":")+8,apiHdrModel.indexOf(",\"nil\"")));
+			return strn;
+		} catch (JAXBException e) {
+			e.printStackTrace();
+		}
+		return null;
+	}
+	/*@SuppressWarnings("rawtypes")
+	public String getISOXmlToPojoString(String reqString, Class className)
+			throws SAXException, ParserConfigurationException, IOException {
+		StringReader sr = new StringReader(reqString);
+		JAXBContext jaxbContext;
+		try {
+			jaxbContext = JAXBContext.newInstance(className);
+			Unmarshaller unmarshaller1 = jaxbContext.createUnmarshaller();
+			String apiHdrModel = new ObjectMapper().writeValueAsString(unmarshaller1.unmarshal(sr));
+			System.out.println("apiHdrModel::="+apiHdrModel);
+			String strn = apiHdrModel.contains("\"value\":")?apiHdrModel.substring(apiHdrModel.indexOf("\"value\":")+8,apiHdrModel.indexOf(",\"nil\"")):apiHdrModel;
+			//System.out.println("Returning response ::="+apiHdrModel.substring(apiHdrModel.indexOf("\"value\":")+8,apiHdrModel.indexOf(",\"nil\"")));
+			return strn;
+		} catch (JAXBException e) {
+			e.printStackTrace();
+		}
+		return null;
+	}*/
+	
+	
+	@SuppressWarnings("rawtypes")
+	public String getISOPojoToXmlString(Object respString, Class className)
+			throws SAXException, ParserConfigurationException, IOException {
+		String xml = "";
+		try {
+			JAXBContext jaxbContext = JAXBContext.newInstance(className);
+			Marshaller jaxbMarshaller = jaxbContext.createMarshaller();
+			jaxbMarshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);
+			jaxbMarshaller.setProperty(Marshaller.JAXB_FRAGMENT, true);
+			StringWriter sw = new StringWriter();
+
+			jaxbMarshaller.marshal(respString, sw);
+			xml = sw.toString();
+			//System.out.println("xml " + xml);
+
+			return xml;
+		} catch (Exception e) {
+			System.out.println("Exception in getISOPojoToXmlString() "+e);
+		}
+		return xml;
+	
+		
+		
+		
+		/*StringReader sr = new StringReader(reqString);
+		JAXBContext jaxbContext;
+		try {
+			jaxbContext = JAXBContext.newInstance(className);
+			Unmarshaller unmarshaller1 = jaxbContext.createUnmarshaller();
+			return new ObjectMapper().writeValueAsString(unmarshaller1.unmarshal(sr));
+		} catch (JAXBException e) {
+			e.printStackTrace();
+		}
+		return null;*/
+	}
+	
+	@SuppressWarnings("rawtypes")
+	public String getISOXmlToPojoStringMsg(String reqString, Class className)
+			throws SAXException, ParserConfigurationException, IOException {
+		StringReader sr = new StringReader(reqString);
+		JAXBContext jaxbContext;
+		try {
+			jaxbContext = JAXBContext.newInstance(className);
+			Unmarshaller unmarshaller1 = jaxbContext.createUnmarshaller();
+			return new ObjectMapper().writeValueAsString(unmarshaller1.unmarshal(sr));
+		} catch (JAXBException e) {
+			e.printStackTrace();
+		}
+		return null;
+	}
+	
+	public BusinessApplicationHeaderV03 getMessageHeader(String messagePayLoadReceived) throws SAXException, ParserConfigurationException, IOException {
+		String headerTagStr = messagePayLoadReceived.replace(messagePayLoadReceived.substring(messagePayLoadReceived.indexOf("<RequestPayload>")+16,messagePayLoadReceived.indexOf("<Fr>")),"<AppHdr>");
+		String appHeaderTag = headerTagStr.substring(headerTagStr.indexOf("<AppHdr"), headerTagStr.indexOf("<Document"));
+		String modfdSgntrsTag=headerTagStr.replace(sign_tag1, "<XMLSgntrs>");
+		String digiSignReceived=modfdSgntrsTag.substring(modfdSgntrsTag.indexOf("<XMLSgntrs>")+11,modfdSgntrsTag.indexOf("</XMLSgntrs>"));
+		String  requestHeader=  getISOXmlToPojoString(appHeaderTag,BusinessApplicationHeaderV03.class );
+		
+		BusinessApplicationHeaderV03 bussMessageHeader=mapper.readValue(requestHeader, BusinessApplicationHeaderV03.class);
+		bussMessageHeader.setSgntr(digiSignReceived);
+		
+		return bussMessageHeader;
+	}
+}
+package com.sbi.gls.globalApi.util;
+
+import java.io.IOException;
+import java.util.Date;
+
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.apache.commons.lang3.time.FastDateFormat;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Component;
+import org.xml.sax.SAXException;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.Dao.SbiGlobalHubTransDao;
+import com.sbi.gls.globalApi.Dao.SendMessageDao;
+import com.sbi.gls.globalApi.constants.MessagePayLoadConstant;
+import com.sbi.gls.globalApi.models.ApiHeaderModel;
+import com.sbi.gls.globalApi.models.CBDExMessageOperationModel;
+import com.sbi.gls.globalApi.models.CBDExMessageOperationModel.ExMessagesOperationReqBody;
+import com.sbi.gls.globalApi.models.CBDOpnClsForBusinessModel;
+import com.sbi.gls.globalApi.models.CBDOpnClsForBusinessModel.OpnClsForBusinessBody;
+import com.sbi.gls.globalApi.models.CBDReconReportRequestModel;
+import com.sbi.gls.globalApi.models.CBDReconReportRequestModel.CBDReconReportRequestBody;
+import com.sbi.gls.globalApi.models.CBDResendResponseModel;
+import com.sbi.gls.globalApi.models.CBDResendResponseModel.ResendResponseBody;
+import com.sbi.gls.globalApi.models.GhubReqResDBInsertionModel;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.ReqBodyComman;
+import com.sbi.gls.globalApi.models.SbiDecResponseModel;
+import com.sbi.gls.globalApi.models.SbiEncResponseModel;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body.RctAck;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body.RctAck.MsgId;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body.RctAck.Rpt;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body.RctAck.Rpt.ReqHdlg;
+import com.sbi.gls.globalApi.models.SbiGhResponseModel.Body.RctAck.Rpt.RltdRef;
+import com.sbi.gls.globalApi.models.SbiReqResHeaderModel;
+import com.sbi.gls.globalApi.models.iso.admi007.MessageHeader10;
+import com.sbi.gls.globalApi.models.iso.admi007.MessageReference1;
+import com.sbi.gls.globalApi.models.iso.admi007.ReceiptAcknowledgementReport2;
+import com.sbi.gls.globalApi.models.iso.admi007.ReceiptAcknowledgementV01;
+import com.sbi.gls.globalApi.models.iso.admi007.RequestHandling2;
+import com.sbi.gls.globalApi.models.iso.head001.BranchAndFinancialInstitutionIdentification6;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+import com.sbi.gls.globalApi.models.iso.head001.ClearingSystemMemberIdentification2;
+import com.sbi.gls.globalApi.models.iso.head001.FinancialInstitutionIdentification18;
+import com.sbi.gls.globalApi.models.iso.head001.Party44Choice;
+import com.sbi.gls.globalApi.util.iso.Camt059ISOMsgUtil;
+import com.sbi.gls.globalApi.util.iso.Pacs004ISOMsgUtil;
+
+@Component
+public class SbiRequestResponseBodyGen {
+	@Value("${IFTAS_SECRET_KEY}")
+	private String secrete_Key;
+
+	@Value("${SBI_ID}")
+	private String sender_ID;
+
+	@Value("${SBI_CERTIFICATE_NO}")
+	private String s_Cert_No;
+
+	@Value("${SBI_CERT_NAME}")
+	private String s_Cert_IssuerName;
+
+	@Value("${IFTAS_ID}")
+	private String receiver_ID;
+
+	@Value("${IFTAS_CERTIFICATE_NO}")
+	private String r_Cert_No;
+
+	@Value("${IFTAS_CERT_NAME}")
+	private String r_Cert_IssuerName;
+
+	@Value("${sign_tag1}")
+	private String sign_tag1;
+	
+	@Value("${sign_tag2}")
+	private String sign_tag2;
+
+	@Value("${PARTICIPANT_CREDIT_ACC_NO}")
+	private String cdtrAccountNo;
+	
+	
+	@Autowired
+	private SBIGHubUtil sbiGhubUtil;
+	@Autowired
+	private SbiGlobalHubTransDao sbiGlobalHubTransDao;
+	@Autowired
+	private SbiISOConvUtil sbiISOConvUtil;
+	@Autowired
+	private SendMessageDao sendMessageDao; 
+	@Autowired
+	private GlsEncryption glsEncryption;
+	@Autowired
+	private Camt059ISOMsgUtil camt059ISOMsgUtil;
+	@Autowired
+	private Pacs004ISOMsgUtil pacs004ISOMsgUtil;
+	
+	// CBDOpenForBusiness
+	public String getCBDOpenForBusinessBody() throws JsonProcessingException {
+		String requestBody = "";
+
+		CBDOpnClsForBusinessModel openforBusinessModel = new CBDOpnClsForBusinessModel();
+		
+		SbiReqResHeaderModel openBusinessHeader = new SbiReqResHeaderModel();
+		openBusinessHeader.setMessageDefinitionIdentifier("Non-ISO Business");
+		openBusinessHeader.setBusinessMessageID(sbiGlobalHubTransDao.getSBIMessageId());
+		openBusinessHeader.setBusinessService("CBDOpenForBusiness");
+
+		OpnClsForBusinessBody openBusinessBody = openforBusinessModel.new OpnClsForBusinessBody();
+		openBusinessBody.setParticipantCode(sender_ID);
+
+		openforBusinessModel.setSbiReqResHeaderModel(openBusinessHeader);
+		openforBusinessModel.setOpnClsForBusinessBody(openBusinessBody);
+
+		requestBody = new ObjectMapper().writeValueAsString(openforBusinessModel);
+
+		return requestBody;
+	}
+
+	// CBDClosedForBusiness
+	public String getCBDClosedForBusinessBody() throws JsonProcessingException {
+		String requestBody = "";
+		CBDOpnClsForBusinessModel closedforBusinessModel = new CBDOpnClsForBusinessModel();
+		SbiReqResHeaderModel openBusinessHeader =new SbiReqResHeaderModel();
+		openBusinessHeader.setMessageDefinitionIdentifier("Non-ISO Business");
+		openBusinessHeader.setBusinessMessageID(sbiGlobalHubTransDao.getSBIMessageId());
+		openBusinessHeader.setBusinessService("CBDClosedForBusiness");
+
+		OpnClsForBusinessBody openBusinessBody = closedforBusinessModel.new OpnClsForBusinessBody();
+		openBusinessBody.setParticipantCode(sender_ID);
+
+		closedforBusinessModel.setSbiReqResHeaderModel(openBusinessHeader);
+		closedforBusinessModel.setOpnClsForBusinessBody(openBusinessBody);
+
+		requestBody = new ObjectMapper().writeValueAsString(closedforBusinessModel);
+
+		return requestBody;
+	}
+	// CBDResendResponseRequest
+		public String getCBDResendResponseRequestBody(ReqBodyComman reqBody) throws JsonProcessingException {
+			String requestBody = "";
+			CBDExMessageOperationModel resendResponseRequest = new CBDExMessageOperationModel();
+			
+			SbiReqResHeaderModel resendResponseReqHeader = new SbiReqResHeaderModel();
+			resendResponseReqHeader.setMessageDefinitionIdentifier("Non-ISO Business");
+			resendResponseReqHeader.setBusinessMessageID(sbiGlobalHubTransDao.getSBIMessageId());
+			resendResponseReqHeader.setBusinessService("CBDResendResponseRequest");
+			
+			ExMessagesOperationReqBody resendResponseReqBody = resendResponseRequest.new ExMessagesOperationReqBody();
+			resendResponseReqBody.setBusinessService(reqBody.getBusinessService());
+			resendResponseReqBody.setBusinessMessageID(reqBody.getBusinessMessageID());
+			resendResponseReqBody.setMessageDefinitionIdentifier(reqBody.getMessageDefinitionIdentifier());
+			resendResponseRequest.setSbiReqResHeaderModel(resendResponseReqHeader);
+			resendResponseRequest.setExMessagesOperationReqBody(resendResponseReqBody);
+
+			requestBody = new ObjectMapper().writeValueAsString(resendResponseRequest);
+
+		return requestBody;
+	}
+
+	// CBDMessageStatusEnquiry
+	public String getExistingMsgStatusEnqReqBody(ReqBodyComman pMessagStausEnqParam,String pBusinessService) throws JsonProcessingException {
+		String pCMbusinessId = sbiGlobalHubTransDao.getSBIMessageId();
+
+		/*pMessagStausEnqParam.getSbiReqResHeaderModel().setBusinessMessageID(pCMbusinessId);
+		pMessagStausEnqParam.getSbiReqResHeaderModel().setBusinessService(pBusinessService);
+		pMessagStausEnqParam.getSbiReqResHeaderModel().setMessageDefinitionIdentifier("Non-ISO Business");*/
+		
+		
+		SbiReqResHeaderModel existingMsgStatusEnqHeader = new SbiReqResHeaderModel();
+		existingMsgStatusEnqHeader.setMessageDefinitionIdentifier("Non-ISO Business");
+		existingMsgStatusEnqHeader.setBusinessMessageID(pCMbusinessId);
+		existingMsgStatusEnqHeader.setBusinessService(pBusinessService);
+
+		ExMessagesOperationReqBody msgDtlsBody = new CBDExMessageOperationModel().new ExMessagesOperationReqBody();
+		msgDtlsBody.setBusinessService(pMessagStausEnqParam.getBusinessService());
+		msgDtlsBody.setBusinessMessageID(pMessagStausEnqParam.getBusinessMessageID());
+		msgDtlsBody.setMessageDefinitionIdentifier(pMessagStausEnqParam.getMessageDefinitionIdentifier());
+
+		
+		CBDExMessageOperationModel existingMessageOperation = new CBDExMessageOperationModel();
+		existingMessageOperation.setSbiReqResHeaderModel(existingMsgStatusEnqHeader);
+		existingMessageOperation.setExMessagesOperationReqBody(msgDtlsBody);
+		return new ObjectMapper().writeValueAsString(existingMessageOperation);
+	}
+
+	// CBDReconciliationReportRequest
+	public String getCBDReconReportReqBody(ReqBodyComman reqBody) throws JsonProcessingException {
+		String requestBody = "";
+		String pCMbusinessId = sbiGlobalHubTransDao.getSBIMessageId(), pCMmsgDefId = "Non-ISO Business",
+				pBusinessService = "CBDReconciliationReportRequest", pBusinessDate = "20250124";
+
+		SbiReqResHeaderModel reconReportReqHeader = new SbiReqResHeaderModel();
+		reconReportReqHeader.setMessageDefinitionIdentifier(pCMmsgDefId);
+		reconReportReqHeader.setBusinessMessageID(pCMbusinessId);
+		reconReportReqHeader.setBusinessService(pBusinessService);
+
+		CBDReconReportRequestBody cbdReconReportRequestBody = new CBDReconReportRequestModel().new CBDReconReportRequestBody();
+		cbdReconReportRequestBody.setBusinessDate(reqBody.getBusinessDate());
+
+		CBDReconReportRequestModel reconReportReqModel = new CBDReconReportRequestModel();
+		reconReportReqModel.setSbiReqResHeaderModel(reconReportReqHeader);
+		reconReportReqModel.setCbdReconReportRequestBody(cbdReconReportRequestBody);
+
+		requestBody=new ObjectMapper().writeValueAsString(reconReportReqModel);
+		return requestBody;
+	}
+
+	// REQUEST
+	public String getNonISOSbiFinalRequestBody(String pEncryptedSymmetricKey, String pPayLoadDigiSign,
+			String pMsgPayLoadType, String pEncryptedMessagePayLoad,SbiEncResponseModel pEncryptedResModel) throws JsonProcessingException {
+		String finalRequesBody="";
+		MessageModel requestModel = new MessageModel();
+		ApiHeaderModel payLoadHeaderModel = new ApiHeaderModel();
+		String uniqueId=sbiGlobalHubTransDao.getSbiUniqueId();
+		String currDateTime=sbiGhubUtil.getTimeStamp();
+		payLoadHeaderModel.setUniqueID(uniqueId);
+		payLoadHeaderModel.setVersionNumber("1.0");
+		payLoadHeaderModel.setSecretKey(secrete_Key);
+		payLoadHeaderModel.setSenderID(sender_ID);
+		payLoadHeaderModel.setReceiverID(receiver_ID);
+		payLoadHeaderModel.setEncryptedSymmetricKey(pEncryptedSymmetricKey);
+
+		payLoadHeaderModel.setReceiverCertificateIssuerName(r_Cert_IssuerName);
+		payLoadHeaderModel.setReceiverCertificateNo(r_Cert_No);
+		payLoadHeaderModel.setFullPayLoadDigitalSignature(pPayLoadDigiSign);
+
+		payLoadHeaderModel.setSenderCertificateIssuerName(s_Cert_IssuerName);
+		payLoadHeaderModel.setSenderCertificateNo(s_Cert_No);
+		payLoadHeaderModel.setMessagePayLoadType(pMsgPayLoadType);
+		payLoadHeaderModel.setTimeStamp(currDateTime);
+
+		requestModel.setApiHeader(payLoadHeaderModel);
+		requestModel.setEncryptedMessagePayload(pEncryptedMessagePayLoad);
+		
+		finalRequesBody=new ObjectMapper().writeValueAsString(requestModel);
+		
+		pEncryptedResModel.setResUniqueId(uniqueId);
+		pEncryptedResModel.setSenderId(sender_ID);
+		pEncryptedResModel.setReceiverId(receiver_ID);
+		pEncryptedResModel.setMessagePayloadType(pMsgPayLoadType);
+		pEncryptedResModel.setEncryptedResponse(finalRequesBody);
+		pEncryptedResModel.setResponseTimeStamp(currDateTime);
+		
+		
+		
+		return finalRequesBody;
+	}
+
+	// RESPONSE
+	public String getCBDAcceptanceResBody(String pMsgDefId, String pRefNo, String pBusinessservice, String pMsgName,
+			String pStatusCode, String pStatusDesc) throws JsonProcessingException {
+
+		String bussMsgId = sbiGlobalHubTransDao.getSBIMessageId();
+		
+		RltdRef rltdRef = new SbiGhResponseModel().new Body().new RctAck().new Rpt().new RltdRef();
+		rltdRef.setRef(pRefNo);// referance no received in request from global
+		rltdRef.setMsgNm(pMsgName);	// hub
+
+
+		ReqHdlg reqHdlg = new SbiGhResponseModel().new Body().new RctAck().new Rpt().new ReqHdlg();
+		reqHdlg.setStsCd(pStatusCode);
+		reqHdlg.setStsDtTm(sbiGhubUtil.getTimeStamp());
+		reqHdlg.setDesc(pStatusDesc);
+
+		Rpt rpt = new SbiGhResponseModel().new Body().new RctAck().new Rpt();
+		rpt.setRltdRef(rltdRef);
+		rpt.setReqHdlg(reqHdlg);
+		
+
+		MsgId msgId = new SbiGhResponseModel().new Body().new RctAck().new MsgId();
+		msgId.setMsgId(bussMsgId);
+
+		RctAck rctAck = new SbiGhResponseModel().new Body().new RctAck();
+		rctAck.setMsgId(msgId);
+		rctAck.setRpt(rpt);
+
+		Body body = new SbiGhResponseModel().new Body();
+		body.setRctAck(rctAck);
+
+		SbiReqResHeaderModel header =new SbiReqResHeaderModel();
+		header.setMessageDefinitionIdentifier(pMsgDefId);
+		header.setBusinessMessageID(bussMsgId);// referance no received in
+		header.setBusinessService(pBusinessservice);
+ 		
+		SbiGhResponseModel acceptance = new SbiGhResponseModel();
+		acceptance.setSbiReqResHeaderModel(header);
+		acceptance.setBody(body);
+		System.out.println(new ObjectMapper().writeValueAsString(acceptance));
+		return new ObjectMapper().writeValueAsString(acceptance);
+
+	}
+
+	public String getCBDAcceptedByParticipant(String refNo, String msgNm, String msgIdSBI)
+			throws SAXException, ParserConfigurationException, IOException {
+		MessageReference1 rltdRef = new MessageReference1();
+		rltdRef.setRef(refNo);
+		rltdRef.setMsgNm(msgNm);
+
+		RequestHandling2 reqHdlg = new RequestHandling2();
+		reqHdlg.setStsCd("S001");
+		String dateFormat = "yyyy-MM-dd'T'HH:mm:ss";
+		FastDateFormat dd = FastDateFormat.getInstance(dateFormat);
+		String date = dd.format(new Date());
+		reqHdlg.setStsDtTm(date + "Z");
+		reqHdlg.setDesc("The message has been received by the Global Hub and successfully validated.");
+
+		ReceiptAcknowledgementReport2 rpt = new ReceiptAcknowledgementReport2();
+		rpt.setRltdRef(rltdRef);
+		rpt.setReqHdlg(reqHdlg);
+
+		MessageHeader10 msgId = new MessageHeader10();
+		msgId.setMsgId(msgIdSBI); // out uniq sbi
+
+		ReceiptAcknowledgementV01 rctAck = new ReceiptAcknowledgementV01();
+		rctAck.setMsgId(msgId);
+		rctAck.getRpt().add(rpt);
+
+		com.sbi.gls.globalApi.models.iso.admi007.Document doc = new com.sbi.gls.globalApi.models.iso.admi007.Document();
+		doc.setRctAck(rctAck);
+
+		String respDoc = sbiISOConvUtil.getISOPojoToXmlString(doc,
+				com.sbi.gls.globalApi.models.iso.admi007.Document.class);
+		
+		ClearingSystemMemberIdentification2 clrSysIdFr = new ClearingSystemMemberIdentification2();
+		clrSysIdFr.setMmbId(sender_ID);
+		FinancialInstitutionIdentification18 finInstnIdFr = new FinancialInstitutionIdentification18();
+		finInstnIdFr.setClrSysMmbId(clrSysIdFr);
+		BranchAndFinancialInstitutionIdentification6 fIIdFr = new BranchAndFinancialInstitutionIdentification6();
+		fIIdFr.setFinInstnId(finInstnIdFr);
+		Party44Choice fr = new Party44Choice();
+		fr.setFIId(fIIdFr);
+
+		ClearingSystemMemberIdentification2 clrSysId = new ClearingSystemMemberIdentification2();
+		clrSysId.setMmbId(receiver_ID);
+		FinancialInstitutionIdentification18 finInstnId = new FinancialInstitutionIdentification18();
+		finInstnId.setClrSysMmbId(clrSysId);
+		BranchAndFinancialInstitutionIdentification6 fIId = new BranchAndFinancialInstitutionIdentification6();
+		fIId.setFinInstnId(finInstnId);
+		Party44Choice to = new Party44Choice();
+		to.setFIId(fIId);
+		/*BusinessApplicationHeader7 bizMsgIdr = new BusinessApplicationHeader7();
+		bizMsgIdr.setBizMsgIdr("SBIN20240924IN00000113");*/
+
+		BusinessApplicationHeaderV03 appHdr = new BusinessApplicationHeaderV03();
+		appHdr.setFr(fr);
+		appHdr.setBizMsgIdr(msgIdSBI);
+		appHdr.setMsgDefIdr("pacs.008.001.11");
+		appHdr.setBizSvc("CBDFIToFICustomerCreditTransfer");
+		appHdr.setCreDt(date + "Z");
+		String signtr = sbiGhubUtil.getDigitalSignatureForISOMessage(respDoc);
+		String signTag = sign_tag1 + signtr + sign_tag2;
+		appHdr.setSgntr(signTag);
+
+		String respHdr = sbiISOConvUtil.getISOPojoToXmlString(appHdr, BusinessApplicationHeaderV03.class)
+				.replace("&lt;", "<").replace("&gt;", ">");
+		// System.out.println("respHdr in XML :"+respHdr);
+		
+		// System.out.println("respHdr in respDoc :"+respDoc);
+		String xmlResp = "<RequestPayload>"+respHdr.concat("\n" + respDoc)+"</RequestPayload>";
+		System.out.println("final response xml :" + respHdr.concat("\n" + respDoc));
+		return xmlResp;
+	}
+
+	public String getResendResponseMsgBody(CBDExMessageOperationModel decReqModel,
+			boolean responseFound, String exResponseBody) throws JsonProcessingException {
+
+		SbiReqResHeaderModel resendResHeader = new SbiReqResHeaderModel();
+		resendResHeader.setMessageDefinitionIdentifier("Non-ISO Business");
+		resendResHeader.setBusinessMessageID(sbiGlobalHubTransDao.getSBIMessageId());
+		resendResHeader.setBusinessService("CBDResendResponse");
+
+		ResendResponseBody resendResBody = new CBDResendResponseModel().new ResendResponseBody();
+		resendResBody.setResponseFound(responseFound);
+		resendResBody.setResponseMessage(exResponseBody);
+
+		CBDResendResponseModel resendRespModel = new CBDResendResponseModel();
+		resendRespModel.setSbiReqResHeaderModel(resendResHeader);
+		resendRespModel.setResendResponseBody(resendResBody);
+
+		return new ObjectMapper().writeValueAsString(resendRespModel);
+	}
+	
+	@Async("asyncTaskExecutor")
+	public void generateIsoMsgResponseBody(boolean validationResult,String pEnd_point,SbiDecResponseModel pDecryptedResModel,String pSenderId) throws SAXException, ParserConfigurationException, IOException, InterruptedException {
+		System.out.println("ThreadId is:="+	Thread.currentThread().getId()+"|| Thread Name Is ::- "+Thread.currentThread().getName());
+		ObjectMapper mapper = new ObjectMapper();
+		//Thread.sleep(120000);
+		String plainResponsePayLoadBody="", responseMessagepayLoad="";
+		SbiEncResponseModel encryptedResModel= new SbiEncResponseModel();
+		SbiDecResponseModel decryptedResModel= new SbiDecResponseModel();
+		
+		System.out.println(" OrgnlItmId::-"+pDecryptedResModel.getCdtTrfTxId());
+		System.out.println(" OrgnlEndToEndId::-"+pDecryptedResModel.getEndToEndId());
+		decryptedResModel.setCdtTrfTxId(pDecryptedResModel.getCdtTrfTxId());
+		decryptedResModel.setEndToEndId(pDecryptedResModel.getEndToEndId());
+		decryptedResModel.setTxTrackingId(pDecryptedResModel.getTxTrackingId());
+		//validationResult=false;
+		System.out.println("pCrebitAccountNoRecv:-"+pDecryptedResModel.getCredAccountNo());
+		if(pDecryptedResModel.getCredAccountNo()!=null && pDecryptedResModel.getCredAccountNo().equals(cdtrAccountNo)){
+			plainResponsePayLoadBody=camt059ISOMsgUtil.generateCamt059ISOMsgDoc(decryptedResModel,pSenderId);
+			
+		}else{
+			plainResponsePayLoadBody=pacs004ISOMsgUtil.generatePacs004ISOMsgDoc(decryptedResModel,pSenderId);
+		}
+		sbiGhubUtil.printLogs("GHSendMessageServiceImpl","generateResponseBody", "plainResponsePayLoadBody ", plainResponsePayLoadBody);
+		
+		
+		if(plainResponsePayLoadBody!=null && !plainResponsePayLoadBody.equals("")){
+			
+			responseMessagepayLoad=sbiGhubUtil.getRequestBodyForGlobalHub(plainResponsePayLoadBody,MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD,encryptedResModel);
+			
+			sbiGhubUtil.printLogs("GHSendMessageServiceImpl","generateResponseBody", "responseMessagepayLoad ", responseMessagepayLoad);
+			sendMessageDao.insertSBIEncryptedResponse(responseMessagepayLoad,encryptedResModel,pEnd_point);
+			
+			sendMessageDao.insertSBIDecryptedResponse(plainResponsePayLoadBody,encryptedResModel.getResUniqueId(),decryptedResModel,pEnd_point);
+			
+			//String CurlCommand="\n\n\n\n Dear  Team,\n Please execute below curl.\n \n curl --interface 10.191.206.105 -kv --http1.1 -X POST -H 'Content-Type:application/json' \"https://globalhub.iftas.in/hub/send_message\" -d'"+responseMessagepayLoad+"'\n\n\n\n \n\n\n\n ";
+			//sbiGhubUtil.printLogs("GHSendMessageServiceImpl","getResponseForSendMsg","CurlCommand",CurlCommand);
+		}
+		
+		//SEND ASYNCHRONOUS RESPONSE TO GHUB
+		String responseReceived=sbiGhubUtil.postMessageToGhub(responseMessagepayLoad, "send_message");
+		
+		//CONVERT RESPONSE RECEIVED FROM GHUB TO MODEL
+		MessageModel ghubResponseModel=mapper.readValue(responseReceived, MessageModel.class);
+		
+		//UPDATE ENCRYPTED GHUB RESPONSE IN DB
+		sendMessageDao.updateEncryptedGhubResponse(responseReceived,ghubResponseModel,encryptedResModel);
+		
+		//VALIDATE SIGNATURE OF RECEIVED REQUEST
+		if(glsEncryption.validateDigitalSignature(ghubResponseModel)){
+			
+			//DECRYPT RECEIVED GHUB  ENCRYPTED RESPONSE
+			String messagePayLoadReceived=sbiGhubUtil.getDecryptedMessagePayLoad(ghubResponseModel);	
+			sbiGhubUtil.printLogs("GHSendMessageServiceImpl","getResponseForSendMsg", "messagePayLoadReceived ", messagePayLoadReceived);
+			
+			//FIND OUT HEADER FROM DECRYPTED REQUEST
+			BusinessApplicationHeaderV03  responseBussMessageHeader=sbiISOConvUtil.getMessageHeader(messagePayLoadReceived);
+			
+			//UPDATE DECRYPTED GHUB RESPONSE IN DB
+			sendMessageDao.updateDecryptedGhubResponse(ghubResponseModel,responseBussMessageHeader,messagePayLoadReceived,encryptedResModel.getResUniqueId(),decryptedResModel);
+			
+		}
+		
+		System.out.println(" responseReceived ::"+responseReceived);
+		
+		
+	}
+
+}
+
+package com.sbi.gls.globalApi.models;
+
+import java.io.Serializable;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class CBDOpnClsForBusinessModel {
+	@JsonProperty("header")
+	private SbiReqResHeaderModel sbiReqResHeaderModel;
+	
+	@JsonProperty("body")
+	private OpnClsForBusinessBody opnClsForBusinessBody;
+    
+  
+   
+    public SbiReqResHeaderModel getSbiReqResHeaderModel() {
+		return sbiReqResHeaderModel;
+	}
+	public void setSbiReqResHeaderModel(SbiReqResHeaderModel sbiReqResHeaderModel) {
+		this.sbiReqResHeaderModel = sbiReqResHeaderModel;
+	}
+	
+
+	
+    
+    public OpnClsForBusinessBody getOpnClsForBusinessBody() {
+		return opnClsForBusinessBody;
+	}
+	public void setOpnClsForBusinessBody(OpnClsForBusinessBody opnClsForBusinessBody) {
+		this.opnClsForBusinessBody = opnClsForBusinessBody;
+	}
+
+
+
+
+	public class OpnClsForBusinessBody {
+        private String participantCode;
+        public String getParticipantCode() {
+            return participantCode;
+        }
+        public void setParticipantCode(String participantCode) {
+            this.participantCode = participantCode;
+        }
+    }
+}
