@@ -1,3 +1,880 @@
+package com.sbi.gls.globalApi.controller;
+
+import java.io.IOException;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.xml.sax.SAXException;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.SbiDecResponseModel;
+import com.sbi.gls.globalApi.models.SbiEncResponseModel;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+import com.sbi.gls.globalApi.services.SbiSendMessageService;
+import com.sbi.gls.globalApi.util.SBIGHubUtil;
+
+import com.sbi.gls.globalApi.util.iso.Admi007ISOMsgUtil;
+import com.sbi.gls.globalApi.util.iso.Camt059ISOMsgUtil;
+import com.sbi.gls.globalApi.util.iso.Pacs004ISOMsgUtil;
+import com.sbi.gls.globalApi.util.iso.Pacs008ISOMsgUtil;
+
+@RestController
+public class CheckServiceController {
+	@RequestMapping("/")
+	public String home(HttpServletRequest req) {
+		String requestUrl = getUrl(req);
+
+		return requestUrl;
+	}
+
+	private String getUrl(HttpServletRequest req) {
+		return req.getScheme() + "://" + req.getServerName()
+				+ ((req.getServerPort() == 80 || req.getServerPort() == 443) ? "" : ":" + req.getServerPort());
+	}
+
+	@RequestMapping(value = "/check", method = RequestMethod.GET)
+	public String checkServiceAvailable() {
+		return " web service is running.......";
+	}
+
+	@Autowired
+	SbiSendMessageService SbiSendMessageService;
+	@Autowired
+	Camt059ISOMsgUtil camt059ISOMsgUtil;
+	@Autowired
+	Pacs008ISOMsgUtil pacs008ISOMsgUtil;
+	@Autowired
+	Pacs004ISOMsgUtil pacs004ISOMsgUtil;
+	@Autowired
+	Admi007ISOMsgUtil admi007ISOMsgUtil;
+	@Autowired
+	SBIGHubUtil sbiGhubUtil;
+	
+	@RequestMapping(value = "/testresponse", method = RequestMethod.GET)
+	public String testResponse() throws SAXException, ParserConfigurationException, IOException{
+		String BizMsgIdr= "";
+		String MsgDefIdr="";
+		String BizSvc="";
+		BusinessApplicationHeaderV03 bussMessageHeader= new BusinessApplicationHeaderV03();
+		
+		SbiEncResponseModel encryptedResModel=new SbiEncResponseModel();
+		SbiDecResponseModel decryptedResModel=new SbiDecResponseModel();
+		
+		return admi007ISOMsgUtil.getAdmi007ISORespMsgDoc( bussMessageHeader,encryptedResModel,decryptedResModel);
+	}
+	
+	@RequestMapping(value = "/testpacs008", method = RequestMethod.GET)
+	public String testpacs008() throws SAXException, ParserConfigurationException, IOException{
+		SbiDecResponseModel decryptedResModel=new SbiDecResponseModel();
+		String isoMsg = pacs008ISOMsgUtil.generatePacs008ISOMsgDoc(decryptedResModel,null);
+		System.out.println("ISO pacs008 msg :"+isoMsg);
+		return SbiSendMessageService.sbiSendMessageToGlobHub(isoMsg);
+	}
+	@RequestMapping(value = "/testpacs004", method = RequestMethod.GET)
+	public String testpacs004() throws SAXException, ParserConfigurationException, IOException{
+
+		SbiEncResponseModel encryptedResModel=new SbiEncResponseModel();
+		SbiDecResponseModel decryptedResModel=new SbiDecResponseModel();
+		String plainResponsePayLoadBody = pacs004ISOMsgUtil.generatePacs004ISOMsgDoc(decryptedResModel,"");
+		System.out.println("ISO pacs004 msg :"+plainResponsePayLoadBody);
+		String encReqMessage=sbiGhubUtil.getRequestBodyForGlobalHub(plainResponsePayLoadBody,"ISO",encryptedResModel);
+		
+		//SEND REQUEST TO GLOBAL HUB
+		return sbiGhubUtil.postMessageToGhub(encReqMessage, "send_message");
+	}
+	
+	@RequestMapping(value = "/testcamt059", method = RequestMethod.GET)
+	public String testcamt059() throws SAXException, ParserConfigurationException, IOException{
+
+		SbiEncResponseModel encryptedResModel=new SbiEncResponseModel();
+		SbiDecResponseModel decryptedResModel=new SbiDecResponseModel();
+		String plainResponsePayLoadBody = camt059ISOMsgUtil.generateCamt059ISOMsgDoc(decryptedResModel,"");
+		String encReqMessage=sbiGhubUtil.getRequestBodyForGlobalHub(plainResponsePayLoadBody,"ISO",encryptedResModel);
+	
+		//SEND REQUEST TO GLOBAL HUB
+		return sbiGhubUtil.postMessageToGhub(encReqMessage, "send_message");
+	}
+	
+	@PostMapping(value="/decPayload", consumes=MediaType.ALL_VALUE)
+	public String decRequestBody(@RequestBody String payload) throws SAXException, ParserConfigurationException, IOException{
+		MessageModel decResendRes =  new ObjectMapper().readValue(payload, MessageModel.class);
+		return sbiGhubUtil.getDecryptedMessagePayLoad(decResendRes);
+	}
+	
+}
+package com.sbi.gls.globalApi.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.sbi.gls.globalApi.services.SbiSendMessageService;
+
+@RestController
+public class SbiSendMessageGlobHub {
+
+	@Autowired
+	private SbiSendMessageService sbiSendMessageService;
+	
+
+	
+	@PostMapping(value="/sbi_send_message",consumes=MediaType.ALL_VALUE)
+	public String sbiSendMessageGh(@RequestBody String pSendMsgBody){
+		System.out.println("[ SbiSendMessageGlobHub ][sbiSendMessageGh][ Execution Start   ]");
+		System.out.println("[ SbiSendMessageGlobHub ][sbiSendMessageGh][  pSendMsgBody   ]"+ pSendMsgBody);
+		String sendMessageResult=sbiSendMessageService.sbiSendMessageToGlobHub(pSendMsgBody);
+		
+		System.out.println("[ SbiSendMessageGlobHub ][sbiSendMessageGh][ Execution Finished   ]");
+		
+		return sendMessageResult;
+	}
+}
+
+package com.sbi.gls.globalApi.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.services.GHSendMessageService;
+
+@RestController
+public class GlobalHubSendMessageController {
+
+	@Autowired
+	GHSendMessageService gHSendMessageService;
+	
+	@PostMapping(value="/send_message",consumes=MediaType.ALL_VALUE )
+	///public ResponseEntity<?> getMessageFromGlobalHub(@RequestBody String pReceivedMsgFromGlobalHub) throws JsonProcessingException{
+		public String  getMessageFromGlobalHub(@RequestBody String pReceivedMsgFromGlobalHub) throws JsonProcessingException{
+		System.out.println("[ GlobalHubSendMessageController ][getMessageFromGlobalHub][ Execution Start   ]");
+		System.out.println("[ GlobalHubSendMessageController ][getMessageFromGlobalHub][ pReceivedMsgFromGlobalHub  ]"+pReceivedMsgFromGlobalHub);
+		
+		String responseBody=gHSendMessageService.getResponseForSendMsg(pReceivedMsgFromGlobalHub);
+		System.out.println("[ GlobalHubSendMessageController ][getMessageFromGlobalHub][ responseBody  ]"+responseBody);
+		
+		System.out.println("[ GlobalHubSendMessageController ][getMessageFromGlobalHub][ Execution Finished   ]");
+		//return ResponseEntity.ok(responseBody);
+		/*try {
+			Thread.sleep(35000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}*/
+		return responseBody;
+	}
+}
+package com.sbi.gls.globalApi.services;
+
+
+
+
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.Date;
+
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.apache.commons.lang3.time.FastDateFormat;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.xml.sax.SAXException;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.gls.globalApi.Dao.SbiGlobalHubTransDao;
+import com.sbi.gls.globalApi.Dao.SendMessageDao;
+import com.sbi.gls.globalApi.constants.MessagePayLoadConstant;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.SbiDecResponseModel;
+import com.sbi.gls.globalApi.models.SbiEncResponseModel;
+import com.sbi.gls.globalApi.models.ValidationResultModel;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+import com.sbi.gls.globalApi.models.iso.pacs008.Document;
+import com.sbi.gls.globalApi.util.GlsEncryption;
+import com.sbi.gls.globalApi.util.ResponseValidator;
+import com.sbi.gls.globalApi.util.SBIGHubUtil;
+import com.sbi.gls.globalApi.util.SbiISOConvUtil;
+import com.sbi.gls.globalApi.util.SbiRequestResponseBodyGen;
+import com.sbi.gls.globalApi.util.iso.Admi007ISOMsgUtil;
+
+@Service
+public class GHSendMessageServiceImpl implements GHSendMessageService{
+
+	@Autowired
+	private GlsEncryption glsEncryption;
+	@Autowired
+	private SBIGHubUtil sbiGhubUtil;
+	@Autowired
+	private Admi007ISOMsgUtil admi007ISOMsgUtil;
+	@Autowired
+	private SbiISOConvUtil sbiISOConvUtil;	
+	@Autowired
+	private ResponseValidator responseValidator;
+	@Autowired
+	private SbiGlobalHubTransDao sbiGlobalHubTransDao;
+	@Autowired
+	private SendMessageDao sendMessageDao; 
+	@Autowired
+	private SbiRequestResponseBodyGen sbiRequestResponseBodyGen;
+	@Value("${IFTAS_ID}")
+	private String pReceiver_Id;
+	
+	ObjectMapper mapper = new ObjectMapper();
+	private String  end_point="send_message";
+			
+	@Override
+	public String getResponseForSendMsg(String pRecvGlobalHubMsg) {
+		System.out.println("[ GHSendMessageServiceImpl ][getResponseForSendMsg][ Execution Start   ]");
+			MessageModel  encryptedReqModel=new MessageModel();
+			BusinessApplicationHeaderV03 bussMessageHeader=new BusinessApplicationHeaderV03();
+			SbiEncResponseModel encryptedResModel= new SbiEncResponseModel();
+			SbiDecResponseModel decryptedResModel= new SbiDecResponseModel();
+			
+			String  ackResponseBody="",request_Unique_id="",messagePayLoadReceived="";
+			try{
+					//CONVERT RECEIVED REQUEST TO POJO CLASS
+					encryptedReqModel=mapper.readValue(pRecvGlobalHubMsg, MessageModel.class);
+					 
+					request_Unique_id=encryptedReqModel.getApiHeader().getUniqueID();
+					boolean duplicateReq=sendMessageDao.checkForDuplicateRequest(request_Unique_id);
+					
+					if(!duplicateReq){
+							//MAINTAIN RECEIVED REQUEST IN DATABASE
+							sendMessageDao.insertGhubEncryptedRequest(pRecvGlobalHubMsg,encryptedReqModel,end_point);
+							
+							//VALIDATE SIGNATURE OF RECEIVED REQUEST
+							if(glsEncryption.validateDigitalSignature(encryptedReqModel)){
+							
+								//DECRYPT RECEIVED ENCRYPTED REQUEST
+								messagePayLoadReceived=sbiGhubUtil.getDecryptedMessagePayLoad(encryptedReqModel);	
+								sbiGhubUtil.printLogs("GHSendMessageServiceImpl","getResponseForSendMsg", "messagePayLoadReceived ", messagePayLoadReceived);
+								 
+								//FIND OUT HEADER FROM DECRYPTED REQUEST
+								bussMessageHeader=sbiISOConvUtil.getMessageHeader(messagePayLoadReceived);
+								
+								
+								//MAINTAIN DECRYPTED REQUEST IN DATABASE 
+								sendMessageDao.insertGhubDecryptedRequest(messagePayLoadReceived,encryptedReqModel,bussMessageHeader,end_point);
+								//sendMessageDao.insertGhubDecryptedRequest(messagePayLoadReceived,encryptedReqModel,bussMessageHeader,end_point);
+		
+								
+								/*_______________SBI RESPONSE BODY GENERATION INITIATED__________________*/
+								
+								//RESPONSE BODY PARAMETERS
+								boolean responseBodyResult=getResponseBodyParameters(encryptedResModel,decryptedResModel,bussMessageHeader,messagePayLoadReceived,encryptedReqModel);
+								
+								//ACKNOLEGMENT RESPONSE PAYLOAD    
+								String ackNackResponse = admi007ISOMsgUtil.getAdmi007ISORespMsgDoc(bussMessageHeader,encryptedResModel,decryptedResModel);
+								System.out.println("ackNackResponse =="+ackNackResponse);
+								
+								//ENCRYPT ACKNOLEGMENT RESPONSE PAYLOAD TO SEND IT TO GLOBAL HUB
+								ackResponseBody=sbiGhubUtil.getRequestBodyForGlobalHub(ackNackResponse,MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD,encryptedResModel);
+								System.out.println("ackResponseBody =="+ackResponseBody);
+								
+		
+				//DB ENTRIES TO UPDATE ENCRYPTED AND DECRYPTED RESPONSE OF SBI
+								boolean resultEncres =sendMessageDao.updateSBIEncryptedResponse(request_Unique_id,encryptedResModel);
+								boolean resultdecres =sendMessageDao.updateSBIPlainResponse(request_Unique_id,encryptedResModel.getResUniqueId(),decryptedResModel);
+								
+								System.out.println("resultdecres =="+resultdecres);
+								System.out.println("resultEncres =="+resultEncres);
+					
+								System.out.println("From Id  =="+bussMessageHeader.getFr().getFIId().getFinInstnId().getClrSysMmbId().getMmbId());
+								System.out.println("Message def Id  =="+bussMessageHeader.getMsgDefIdr());
+								System.out.println("BizSvc Is  =="+bussMessageHeader.getBizSvc());
+				//SEND RESPONSE TO IFTAS 
+								///sbiGhubUtil.postMessageToGhub(ackResponseBody, end_point);
+								String senderId=bussMessageHeader.getFr().getFIId().getFinInstnId().getClrSysMmbId().getMmbId();
+								
+								//if(!senderId.equals("GHUBIN00001") && !bussMessageHeader.getMsgDefIdr().equals("admi.007.001.01")){
+								if(bussMessageHeader.getBizSvc()!=null && bussMessageHeader.getBizSvc().equals("CBDFIToFICustomerCreditTransfer") && 
+										bussMessageHeader.getMsgDefIdr()!=null && bussMessageHeader.getMsgDefIdr().equals("pacs.008.001.11") ){
+									System.out.println(" Actual Response about to send ");
+									//SEND ASYNCHONANCE RESPONSE
+									System.out.println("ThreadId is:="+	Thread.currentThread().getId()+"|| Thread Name Is ::- "+Thread.currentThread().getName());
+								
+									sbiRequestResponseBodyGen.generateIsoMsgResponseBody(responseBodyResult,"sbi_"+end_point,decryptedResModel,senderId);
+								}
+								
+							
+							}else{
+								messagePayLoadReceived="Invalid Digital Signature found in message,Unable to decrypt message payload";
+								sendMessageDao.insertGhubDecryptedRequest(messagePayLoadReceived,encryptedReqModel,bussMessageHeader,end_point);
+								System.out.println("messagePayLoadReceived =="+messagePayLoadReceived);
+							}
+						}else{
+						System.out.println("Duplicate Message Received,Did Not Maintain records in Database ==");
+					}	
+				}catch(Exception e){
+					e.printStackTrace();
+				}
+				
+		System.out.println("[ GHSendMessageServiceImpl ][getResponseMessageBody][ Execution Finished   ]");
+		
+		return ackResponseBody;
+	}
+
+
+	private boolean getResponseBodyParameters(SbiEncResponseModel encryptedResModel,SbiDecResponseModel pDecryptedResModel,
+			BusinessApplicationHeaderV03 pBussMessageHeader, String messagePayLoadReceived, MessageModel  encryptedReqModel) throws SAXException, ParserConfigurationException, IOException, ParseException {
+
+		String refMsgId="",requestBody="",refCreationDateTime="",transTrackId = "",crdtTransTxnsId="",orgMessageDocTag="",modfdMessageDocTag="",cdtrAcctNo="";
+		boolean validationResult=false;
+		ObjectMapper oMapper = new ObjectMapper();
+		
+		orgMessageDocTag=messagePayLoadReceived.substring(messagePayLoadReceived.indexOf("<Document"),messagePayLoadReceived.indexOf("</Document>")+11);
+		modfdMessageDocTag=orgMessageDocTag.replace(orgMessageDocTag.substring(0,orgMessageDocTag.indexOf(">")+1), "<Document>");
+		
+		if(pBussMessageHeader.getMsgDefIdr()!=null && !pBussMessageHeader.getMsgDefIdr().equals("") && pBussMessageHeader.getMsgDefIdr().equals("admi.007.001.01") ){
+			encryptedResModel.setReceiverId(pReceiver_Id);
+		}else{ 
+			encryptedResModel.setReceiverId(messagePayLoadReceived.substring(messagePayLoadReceived.indexOf("<MmbId>")+7, messagePayLoadReceived.indexOf("</MmbId>")));
+		}
+		
+		
+		if(pBussMessageHeader!=null && pBussMessageHeader.getMsgDefIdr().equalsIgnoreCase("pacs.008.001.11")){
+			  requestBody=sbiISOConvUtil.getISOXmlToPojoStringMsg(modfdMessageDocTag,Document.class );
+			Document pac008msgBody=oMapper.readValue(requestBody, Document.class);
+			refMsgId=pac008msgBody.getFIToFICstmrCdtTrf().getGrpHdr().getMsgId();
+			refCreationDateTime=pac008msgBody.getFIToFICstmrCdtTrf().getGrpHdr().getCreDtTm();
+			transTrackId = pBussMessageHeader.getBizMsgIdr();
+			crdtTransTxnsId=pac008msgBody.getFIToFICstmrCdtTrf().getCdtTrfTxInf().get(0).getPmtId().getTxId();
+			System.out.println(" Smitesh crdtTransTxnsId ::"+crdtTransTxnsId);
+			String endToEndId=pac008msgBody.getFIToFICstmrCdtTrf().getCdtTrfTxInf().get(0).getPmtId().getEndToEndId();
+			if(pac008msgBody.getFIToFICstmrCdtTrf().getCdtTrfTxInf().get(0).getCdtrAcct().getId().getIBAN()!=null){
+				cdtrAcctNo=pac008msgBody.getFIToFICstmrCdtTrf().getCdtTrfTxInf().get(0).getCdtrAcct().getId().getIBAN();
+			}else{
+				cdtrAcctNo=pac008msgBody.getFIToFICstmrCdtTrf().getCdtTrfTxInf().get(0).getCdtrAcct().getId().getOthr().getId();
+			}
+			
+			pDecryptedResModel.setEndToEndId(endToEndId);
+			pDecryptedResModel.setCdtTrfTxId(crdtTransTxnsId);
+			
+			
+			System.out.println("Credit Account NO received is ::-"+cdtrAcctNo);
+		} else if(pBussMessageHeader!=null && pBussMessageHeader.getMsgDefIdr().equalsIgnoreCase("camt.059.001.07")){
+			  requestBody=sbiISOConvUtil.getISOXmlToPojoStringMsg(modfdMessageDocTag,com.sbi.gls.globalApi.models.iso.camt059.Document.class );
+			com.sbi.gls.globalApi.models.iso.camt059.Document camt059MsgBody=oMapper.readValue(requestBody, com.sbi.gls.globalApi.models.iso.camt059.Document.class);
+			refMsgId=camt059MsgBody.getNtfctnToRcvStsRpt().getGrpHdr().getMsgId();
+			refCreationDateTime=camt059MsgBody.getNtfctnToRcvStsRpt().getGrpHdr().getCreDtTm();
+			transTrackId = camt059MsgBody.getNtfctnToRcvStsRpt().getOrgnlNtfctnAndSts().getOrgnlMsgId();
+		}else if(pBussMessageHeader!=null && pBussMessageHeader.getMsgDefIdr().equalsIgnoreCase("pacs.004.001.12")){
+			  requestBody=sbiISOConvUtil.getISOXmlToPojoStringMsg(modfdMessageDocTag,com.sbi.gls.globalApi.models.iso.pacs004.Document.class );
+			com.sbi.gls.globalApi.models.iso.pacs004.Document pac004msgBody=oMapper.readValue(requestBody, com.sbi.gls.globalApi.models.iso.pacs004.Document.class);
+			refMsgId=pac004msgBody.getPmtRtr().getGrpHdr().getMsgId();
+			refCreationDateTime=pac004msgBody.getPmtRtr().getGrpHdr().getCreDtTm();
+			transTrackId = pac004msgBody.getPmtRtr().getOrgnlGrpInf().getOrgnlMsgId();//.get(0).getOrgnlTxId();
+		}else{
+			  requestBody=sbiISOConvUtil.getISOXmlToPojoStringMsg(modfdMessageDocTag,com.sbi.gls.globalApi.models.iso.admi007.Document.class );
+			com.sbi.gls.globalApi.models.iso.admi007.Document admi007MsgModel=oMapper.readValue(requestBody, com.sbi.gls.globalApi.models.iso.admi007.Document.class);
+			refMsgId=admi007MsgModel.getRctAck().getMsgId().getMsgId();
+			//refCreationDateTime=FastDateFormat.getInstance("yyyyMMdd").format(new Date());
+			refCreationDateTime=admi007MsgModel.getRctAck().getRpt().get(0).getReqHdlg().getStsDtTm();
+			//relationId = admi007MsgModel.getRctAck().getRpt().get(0).getRltdRef().getRef();
+			//transactionOriginId = admi007MsgModel.getRctAck().getRpt().get(0).getRltdRef().getRef() ;
+			transTrackId=sendMessageDao.fetchOriginTransactionId(admi007MsgModel.getRctAck().getRpt().get(0).getRltdRef().getRef());
+			
+		}
+		
+		pDecryptedResModel.setMessageId(sbiGlobalHubTransDao.getSBIMessageId());
+		pDecryptedResModel.setRelatedRefNo(pBussMessageHeader.getBizMsgIdr());
+		pDecryptedResModel.setRelatedMessageService(pBussMessageHeader.getBizSvc());
+		pDecryptedResModel.setTxTrackingId(transTrackId);	
+		pDecryptedResModel.setCredAccountNo(cdtrAcctNo);
+		
+		//VALIDATE REQUEST TO DECIDE WHICH RESPONSE NEED TO SEND (pc004 or camt59 )
+		validationResult=validateReceivedMessage(pBussMessageHeader,refMsgId,refCreationDateTime,orgMessageDocTag,pDecryptedResModel);
+		
+		return validationResult;
+		
+	}
+
+
+	private boolean validateReceivedMessage(BusinessApplicationHeaderV03 pBussMessageHeader, String refMsgId,
+			String refCreationDateTime, String orgMessageDocTag,SbiDecResponseModel pDecryptedResModel) throws ParseException {
+		boolean validationResult;
+		String receivedSignDtls[]=pBussMessageHeader.getSgntr().replace("|", "~").split("~");
+		String senderPublicKey=sendMessageDao.getSenderCertificateDtls(receivedSignDtls[1],pBussMessageHeader.getFr().getFIId().getFinInstnId().getClrSysMmbId().getMmbId());
+		pBussMessageHeader.setSgntr(receivedSignDtls[0]);
+		
+		ValidationResultModel validationDtls=responseValidator.validateIsoHeaderTag(pBussMessageHeader,senderPublicKey,refMsgId,refCreationDateTime,orgMessageDocTag);
+		
+		/*ValidationResultModel validationDtls=new ValidationResultModel() ;
+		validationDtls.setError_code("S002");
+		validationDtls.setError_desc("The message has been received by the destination and successfully validated");
+		*/
+		
+		if(validationDtls!=null && validationDtls.getError_code().equals("S002")){
+			pDecryptedResModel.setBusinessService("CBDAcceptedByParticipant");
+			pDecryptedResModel.setStatus_code(validationDtls.getError_code());
+			pDecryptedResModel.setStatus_desc(validationDtls.getError_desc());
+			validationResult=true;
+		}else{
+			pDecryptedResModel.setBusinessService("CBDRejectedByParticipant");
+			pDecryptedResModel.setStatus_code(validationDtls.getError_code());
+			pDecryptedResModel.setStatus_desc(validationDtls.getError_desc());
+			validationResult=false;
+		}
+		
+		return validationResult;
+	}
+
+	
+	
+	
+	
+  
+	
+}
+package com.sbi.gls.globalApi.Dao;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.stereotype.Repository;
+
+import com.sbi.gls.globalApi.constants.MessagePayLoadConstant;
+import com.sbi.gls.globalApi.constants.SQLConstant;
+import com.sbi.gls.globalApi.models.MessageModel;
+import com.sbi.gls.globalApi.models.SbiDecResponseModel;
+import com.sbi.gls.globalApi.models.SbiEncResponseModel;
+import com.sbi.gls.globalApi.models.iso.head001.BusinessApplicationHeaderV03;
+import com.sbi.gls.globalApi.util.SbiConverter;
+
+import oracle.jdbc.OraclePreparedStatement;
+import oracle.sql.CLOB;
+
+@Repository
+public class SendMessageDaoImpl implements SendMessageDao{
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+	
+	@Autowired
+	SbiConverter sbiConverter;
+	
+	
+	@Override
+	public boolean insertGhubEncryptedRequest(String pRequestReceived,  MessageModel receivedMsgParam,String pEndPoint) {
+		
+		try{
+			// TODO Auto-generated method stub
+			java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+			
+			try {
+					CLOB encPayloadClob = sbiConverter.getCLOB(pRequestReceived,con);
+				System.out.println("Unique id ::"+receivedMsgParam.getApiHeader().getUniqueID());
+				System.out.println("Sender's Id "+receivedMsgParam.getApiHeader().getSenderID());
+				System.out.println("Receiver's Id "+receivedMsgParam.getApiHeader().getReceiverID());
+				System.out.println("Message payload Type ::"+receivedMsgParam.getApiHeader().getMessagePayLoadType());
+				System.out.println("Encrypted Req :: "+encPayloadClob);
+				System.out.println("Request received Time Stamp ::"+receivedMsgParam.getApiHeader().getTimeStamp());
+				
+				
+					 OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.INSERT_GLOBALHUB_ENCRYPTED_REQUEST);
+					 ps.setString(1, receivedMsgParam.getApiHeader().getUniqueID());
+					 ps.setString(2, receivedMsgParam.getApiHeader().getSenderID());
+					 ps.setString(3, receivedMsgParam.getApiHeader().getReceiverID());
+					 ps.setString(4, receivedMsgParam.getApiHeader().getMessagePayLoadType());
+					 ps.setCLOB(5, encPayloadClob);
+					 ps.setString(6, "G-S");
+					 ps.setString(7, receivedMsgParam.getApiHeader().getTimeStamp());
+					 ps.setString(8, pEndPoint);
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+		
+		 }
+	
+	@Override
+	public boolean insertGhubDecryptedRequest(String pDecryptedRequest , MessageModel pRequestModel, BusinessApplicationHeaderV03 pMessageHeader,String pEndPoint) {
+		
+		try{
+			// TODO Auto-generated method stub
+			java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+			
+			try {
+				//GhubReqResDBInsertionModel ghubReqResDBInsertionModel
+					//System.out.println("Decrypted  Req :: "+ghubReqResDBInsertionModel.getDecryptedRequest());
+					CLOB clob = sbiConverter.getCLOB(pDecryptedRequest,con);
+					
+					System.out.println("Unique id ::"+pRequestModel.getApiHeader().getUniqueID());
+					System.out.println("Business Msg id  "+pMessageHeader.getBizMsgIdr());
+					System.out.println("Business Service "+pMessageHeader.getBizSvc());
+					System.out.println("Message payload Type ::"+pRequestModel.getApiHeader().getMessagePayLoadType());
+					System.out.println("Message Def ::"+pMessageHeader.getMsgDefIdr());
+					//System.out.println("relationId ::"+pMessageHeader.getBizMsgIdr());
+					
+				    OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.INSERT_GLOBALHUB_DECRYPTED_REQUEST);
+					 ps.setString(1, pRequestModel.getApiHeader().getUniqueID());
+					 ps.setString(2, pMessageHeader.getBizMsgIdr());
+					 ps.setString(3, pMessageHeader.getBizSvc());
+					 ps.setString(4, pRequestModel.getApiHeader().getMessagePayLoadType());
+					 ps.setString(5, pMessageHeader.getMsgDefIdr());
+					 ps.setCLOB(6, clob);
+					 ps.setString(7, "G-S");
+					 ps.setString(8, pEndPoint);
+					// ps.setString(9, pMessageHeader.getBizMsgIdr());
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+		
+		 }
+
+	@Override
+	public boolean updateSBIPlainResponse(String pReqUniqueId,String pResUniqueId,SbiDecResponseModel decryptedResModel) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		try{
+			// TODO Auto-generated method stub
+			
+			
+			try {System.out.println("Respnse Decrypted ::"+decryptedResModel.getDecryptedResponse());
+					CLOB decryptedResponseClob = sbiConverter.getCLOB(decryptedResModel.getDecryptedResponse(),con);
+					
+					System.out.println("Respnse Unique id ::"+pResUniqueId);
+					System.out.println("Respnse Business Msg id  "+decryptedResModel.getMessageId());
+					System.out.println("Respnse Business Service "+decryptedResModel.getBusinessService());
+					System.out.println("Respnse Message payload Type ::"+MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					System.out.println("Respnse Message Def :: "+decryptedResModel.getMessageDefinitionIdentifier());
+					System.out.println("Origin Of transactions id  ::"+decryptedResModel.getTxTrackingId());
+					
+					System.out.println("Unique id  ::"+pReqUniqueId);
+					System.out.println("Business Msg id ::"+decryptedResModel.getMessageId());
+					
+					
+				     OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.UPDATE_SBI_DECRYPTED_RESPONSE);
+					 ps.setString(1, pResUniqueId);
+					 ps.setString(2, decryptedResModel.getMessageId());
+					 ps.setString(3, decryptedResModel.getBusinessService());
+					 ps.setString(4, MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					 ps.setString(5, decryptedResModel.getMessageDefinitionIdentifier());
+					 ps.setCLOB(6, decryptedResponseClob);
+					 ps.setString(7, decryptedResModel.getTxTrackingId());
+					 
+					 ps.setString(8, pReqUniqueId);
+					 ps.setString(9, decryptedResModel.getReqMessageId());
+					 
+					
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+		
+		 }
+
+	@Override
+	public boolean updateSBIEncryptedResponse(String pUniqueId,SbiEncResponseModel encryptedResModel) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		try{
+			// TODO Auto-generated method stub
+			
+			
+			try {
+			
+					System.out.println("Respnse Encrypted ::"+encryptedResModel.getEncryptedResponse());
+				
+					CLOB clob = sbiConverter.getCLOB(encryptedResModel.getEncryptedResponse(),con);
+
+					System.out.println("Res UniqueRefNo :-"+encryptedResModel.getResUniqueId());
+					System.out.println("Res Sender Id :-"+encryptedResModel.getSenderId());
+					System.out.println("Res Receiver Id :-"+encryptedResModel.getReceiverId());
+					System.out.println("Res Payload type :-"+encryptedResModel.getMessagePayloadType());
+					System.out.println("Uniqui id for where cluase :-"+pUniqueId);
+					
+				   		   		    
+				    OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.UPDATE_SBI_ENCRYPTED_RESPONSE);
+					
+				     ps.setString(1, encryptedResModel.getResUniqueId());
+					 ps.setString(2, encryptedResModel.getSenderId());
+					 ps.setString(3, encryptedResModel.getReceiverId());
+					 ps.setString(4, encryptedResModel.getMessagePayloadType());
+					 ps.setCLOB(5, clob);
+					 ps.setString(6, pUniqueId);
+					
+					
+					 
+					 
+					 
+					ps.execute();
+					System.out.println("eXECUTION DONE :-"+SQLConstant.UPDATE_SBI_ENCRYPTED_RESPONSE);
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+		
+		 }
+
+	@Override
+	public boolean insertSBIEncryptedResponse(String responseMessagepayLoad,
+			SbiEncResponseModel pEncryptedResModel,String pEndPoint) {
+		try{
+			// TODO Auto-generated method stub
+			java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+			
+			try {
+				
+				CLOB encPayloadClob = sbiConverter.getCLOB(responseMessagepayLoad,con);
+				System.out.println("---------------insertSBIEncryptedResponse --------------------------------");
+				System.out.println("Unique id ::"+pEncryptedResModel.getResUniqueId());
+				System.out.println("Sender's Id "+pEncryptedResModel.getSenderId());
+				System.out.println("Receiver's Id "+pEncryptedResModel.getReceiverId());
+				System.out.println("Message payload Type ::"+MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+				System.out.println("Encrypted Req :: "+encPayloadClob);
+				System.out.println("Request received Time Stamp ::"+pEncryptedResModel.getResponseTimeStamp());
+				
+				
+					 OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.INSERT_GLOBALHUB_ENCRYPTED_REQUEST);
+					 ps.setString(1, pEncryptedResModel.getResUniqueId());
+					 ps.setString(2, pEncryptedResModel.getSenderId());
+					 ps.setString(3, pEncryptedResModel.getReceiverId());
+					 ps.setString(4, MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					 ps.setCLOB(5, encPayloadClob);
+					 ps.setString(6, "G-S");
+					 ps.setString(7, pEncryptedResModel.getResponseTimeStamp());
+					 ps.setString(8, pEndPoint);
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+	}
+
+	@Override
+	public boolean insertSBIDecryptedResponse(String pResponseMessagepayLoad,String pUniqueId,
+			SbiDecResponseModel pDecryptedResModel,String pEndPoint) {
+		try{
+			// TODO Auto-generated method stub
+			java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+			
+			try {
+				//UNIQUE_ID,BUSS_MSG_ID,BUSS_SERVICE,MSG_PAYLOAD_TYPE,MSG_DEF,DECRYPTED_REQ,REQ_ORIGIN)
+				CLOB encPayloadClob = sbiConverter.getCLOB(pResponseMessagepayLoad,con);
+				System.out.println("--------------------------------insertSBIDecryptedResponse ----------------------------------------------");
+				System.out.println("Unique id ::"+pUniqueId);
+				System.out.println("Business Message Id "+pDecryptedResModel.getMessageId());
+				System.out.println("Business service"+pDecryptedResModel.getBusinessService());
+				System.out.println("Message payload Type ::"+MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+				System.out.println("Message Defination ::"+pDecryptedResModel.getMessageDefinitionIdentifier());
+				System.out.println("Decrypted PayLoad :: "+encPayloadClob);
+			//	,UNIQUE_ID,BUSS_MSG_ID,BUSS_SERVICE,MSG_PAYLOAD_TYPE,MSG_DEF,DECRYPTED_REQ,REQ_ORIGIN,INSERTION_TIME
+				
+				
+					 OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.INSERT_GLOBALHUB_DECRYPTED_REQUEST);
+					 ps.setString(1, pUniqueId);
+					 ps.setString(2, pDecryptedResModel.getMessageId());
+					 ps.setString(3, pDecryptedResModel.getBusinessService());
+					 ps.setString(4, MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					 ps.setString(5, pDecryptedResModel.getMessageDefinitionIdentifier());
+					 ps.setCLOB(6, encPayloadClob);
+					 ps.setString(7, "S-G");
+					 ps.setString(8, pEndPoint);
+					 //ps.setString(9, pDecryptedResModel.getTxOriginId());
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		return true;
+		
+	}
+
+	@Override
+	public void updateEncryptedGhubResponse(String responseReceived, MessageModel ghubResponseModel,
+			SbiEncResponseModel encryptedResModel) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		try{
+			// TODO Auto-generated method stub
+			
+			
+			try {
+			
+				System.out.println("-----------------------UpdateEncryptedGhubResponse ---------------------------------");
+					
+					System.out.println("Respnse Encrypted ::"+encryptedResModel.getEncryptedResponse());
+				
+					CLOB clob = sbiConverter.getCLOB(responseReceived,con);
+
+					System.out.println("Res UniqueRefNo :-"+ghubResponseModel.getApiHeader().getUniqueID());
+					System.out.println("Res Sender Id :-"+ghubResponseModel.getApiHeader().getSenderID());
+					System.out.println("Res Receiver Id :-"+ghubResponseModel.getApiHeader().getReceiverID());
+					System.out.println("Res Payload type :-"+ghubResponseModel.getApiHeader().getMessagePayLoadType());
+					System.out.println("Unique id for where cluase :-"+encryptedResModel.getResUniqueId());
+					
+				   		   		    
+				    OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.UPDATE_SBI_ENCRYPTED_RESPONSE);
+					
+				     ps.setString(1, ghubResponseModel.getApiHeader().getUniqueID());
+					 ps.setString(2, ghubResponseModel.getApiHeader().getSenderID());
+					 ps.setString(3, ghubResponseModel.getApiHeader().getReceiverID());
+					 ps.setString(4, ghubResponseModel.getApiHeader().getMessagePayLoadType());
+					 ps.setCLOB(5, clob);
+					 ps.setString(6, encryptedResModel.getResUniqueId());
+					
+					 ps.execute();
+					System.out.println("eXECUTION DONE :-"+SQLConstant.UPDATE_SBI_ENCRYPTED_RESPONSE);
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		
+	}
+
+	@Override
+	public void updateDecryptedGhubResponse(MessageModel ghubResponseModel,
+			BusinessApplicationHeaderV03 responseBussMessageHeader, String messagePayLoadReceived,
+			String pReqUniqueId, SbiDecResponseModel pDecryptedResModel) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		try{
+			// TODO Auto-generated method stub
+			
+			
+			try {System.out.println("Respnse Decrypted ::"+messagePayLoadReceived);
+					CLOB decryptedResponseClob = sbiConverter.getCLOB(messagePayLoadReceived,con);
+					
+					System.out.println("Respnse Unique id ::"+ghubResponseModel.getApiHeader().getUniqueID());
+					System.out.println("Respnse Business Msg id  "+responseBussMessageHeader.getBizMsgIdr());
+					System.out.println("Respnse Business Service "+responseBussMessageHeader.getBizSvc());
+					System.out.println("Respnse Message payload Type ::"+MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					System.out.println("Respnse Message Def :: "+responseBussMessageHeader.getMsgDefIdr());
+					System.out.println("Tx Origin Id   ::"+pDecryptedResModel.getTxTrackingId());
+					
+					System.out.println("Unique id  ::"+pReqUniqueId);
+					System.out.println("Business Msg id ::"+pDecryptedResModel.getMessageId());
+					
+					
+				     OraclePreparedStatement ps = (OraclePreparedStatement)con.prepareStatement(SQLConstant.UPDATE_SBI_DECRYPTED_RESPONSE);
+				     ps.setString(1, ghubResponseModel.getApiHeader().getUniqueID());
+					 ps.setString(2, responseBussMessageHeader.getBizMsgIdr());
+					 ps.setString(3, responseBussMessageHeader.getBizSvc());
+					 ps.setString(4, MessagePayLoadConstant.ISO_MESSAGE_PAYLOAD);
+					 ps.setString(5, responseBussMessageHeader.getMsgDefIdr());
+					 ps.setCLOB(6, decryptedResponseClob);
+					 ps.setString(7, pDecryptedResModel.getTxTrackingId());
+					 
+					 ps.setString(8, pReqUniqueId);
+					 ps.setString(9, pDecryptedResModel.getMessageId());
+					 
+					
+					ps.execute();
+				}
+				catch(Exception e){
+					e.printStackTrace();
+				
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+		
+	}
+
+	@Override
+	public String getSenderCertificateDtls(String pCertiNo, String pSendersId) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		String senderPulicKey="";
+		try{
+			System.out.println("Query ::- "+SQLConstant.FETCH_SENDERS_PUBLIC_KEY+" param="+pCertiNo+"||"+pSendersId);
+			senderPulicKey = (String) jdbcTemplate.queryForObject(SQLConstant.FETCH_SENDERS_PUBLIC_KEY,new Object[]{pCertiNo,pSendersId}, String.class);
+			
+			
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+		return senderPulicKey;
+	}
+
+	@Override
+	public String fetchOriginTransactionId(String pRefNoReceived) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		String orignalTxId="";
+		try{
+			System.out.println("Query ::- "+SQLConstant.FETCH_ORIGNAL_TRANSACTION_ID+" param="+pRefNoReceived);
+			orignalTxId = (String) jdbcTemplate.queryForObject(SQLConstant.FETCH_ORIGNAL_TRANSACTION_ID,new Object[]{pRefNoReceived}, String.class);
+			System.out.println("orignalTxId::- "+orignalTxId);
+			
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+		return orignalTxId;
+	}
+
+	@Override
+	public boolean checkForDuplicateRequest(String request_Unique_id) {
+		java.sql.Connection con=DataSourceUtils.getConnection(jdbcTemplate.getDataSource());
+		boolean  duplicateReq=false;
+		try{
+			System.out.println("Query ::- "+SQLConstant.DUPLICATE_REQUEST_COUNT+" param="+request_Unique_id);
+			int duplicateMsgCount = jdbcTemplate.queryForObject(SQLConstant.DUPLICATE_REQUEST_COUNT,new Object[]{request_Unique_id}, Integer.class);
+			if(duplicateMsgCount>0)duplicateReq=true;
+				
+			
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+		
+		return duplicateReq;
+	}
+
+	
+	
+}
+
+
 package com.sbi.gls.globalApi.util;
 
 import java.util.Arrays;
