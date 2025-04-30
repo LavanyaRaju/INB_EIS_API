@@ -1,0 +1,860 @@
+package com.sbi.fxout.controller;
+
+import org.apache.axis.utils.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.fxout.encryption.EncryptionDecryption;
+import com.sbi.fxout.model.EISYonoRequest;
+import com.sbi.fxout.model.EISYonoResponse;
+import com.sbi.fxout.model.EisEncReq;
+import com.sbi.fxout.model.EisEncResponse;
+import com.sbi.fxout.model.MT103MsgResponse;
+import com.sbi.fxout.model.TxnHistoryResponse;
+import com.sbi.fxout.service.EisYonoService;
+
+@RestController
+@RequestMapping("/eis")
+public class EIS_TO_Yono_Controller {
+
+
+	@Autowired
+	EisYonoService eisYonoService;
+	
+	@GetMapping("/test")
+	public ResponseEntity  testController(){
+		
+		return ResponseEntity.ok("testController hit");
+		
+	}
+	
+	@PostMapping(value="/v1/txn/cancel",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<Object> cancleTxnViaYono(@RequestBody EISYonoRequest eisReq)  {
+		EISYonoResponse response=new EISYonoResponse();
+		String result=null;
+		if(! StringUtils.isEmpty(eisReq.getTransactionReferenceID())){
+			result=eisYonoService.cancelTxn(eisReq.getTransactionReferenceID(),response);
+			return new ResponseEntity<>(response, HttpStatus.OK);
+		}
+		return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+		
+		
+	}
+	
+	@PostMapping(value="/get/mxmessage",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<Object> getMT103MsgDetails(@RequestBody EISYonoRequest eisReq)  {
+		MT103MsgResponse response=new MT103MsgResponse();
+		String result=null;
+		if(! StringUtils.isEmpty(eisReq.getTransactionReferenceID())){
+			result=eisYonoService.getMT103MsgDetailsByRefNo(eisReq.getTransactionReferenceID(),response);
+			return new ResponseEntity<>(response, HttpStatus.OK);
+		}
+		return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+		
+		
+	}
+	
+	
+	
+	@PostMapping(value="/get/txn/history",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<Object> getTxnHistory(@RequestBody EISYonoRequest eisReq)  {
+		
+		TxnHistoryResponse response=new TxnHistoryResponse();
+		String result=null;
+		if(! StringUtils.isEmpty(eisReq.getCifNumber())){
+			result=eisYonoService.getTxnHistory(eisReq,response);
+			return new ResponseEntity<>(response, HttpStatus.OK);
+		}
+		return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+		
+		
+	}
+	
+//	@PostMapping(value="/enc/txn/cancel",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+//	public ResponseEntity<Object> cancleTxnViaYonoEnc(@RequestBody EISYonoRequest eisReq)  {
+//		EISYonoResponse response=new EISYonoResponse();
+//		String result=null;
+//		if(! StringUtils.isEmpty(eisReq.getTransactionReferenceID())){
+//			
+//			Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+//
+//			String jsonString = gson.toJson(eisReq);
+//			
+//			String encReq=EncryptionDecryption.encrypt(jsonString);
+//			System.out.println("Enc Req "+encReq);
+//			
+//			String decrReq=EncryptionDecryption.decrypt(encReq);
+//			
+//			
+//			EISYonoRequest req=null;
+//		
+//			req  = gson.fromJson(decrReq, EISYonoRequest.class);
+//			
+//			eisYonoService.cancelTxn(req.getTransactionReferenceID(),response);
+//			result=EncryptionDecryption.encrypt(gson.toJson(response));
+//			return new ResponseEntity<>(result, HttpStatus.OK);
+//		}
+//		return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+//		
+//		
+//	}
+	
+	
+//	@PostMapping(value="/enc1/txn/cancel",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+//	public ResponseEntity<Object> cancleTxnViaYonoEnc1(@RequestBody String eisEncReq)  {
+//		EISYonoResponse response=new EISYonoResponse();
+//		String result=null;
+//		if(! StringUtils.isEmpty(eisEncReq)){
+//			
+//			Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+//
+//			String decrReq=EncryptionDecryption.decrypt(eisEncReq);
+//			
+//			
+//			EISYonoRequest req=null;
+//		
+//			req  = gson.fromJson(decrReq, EISYonoRequest.class);
+//			
+//			eisYonoService.cancelTxn(req.getTransactionReferenceID(),response);
+//			result=EncryptionDecryption.encrypt(gson.toJson(response));
+//			return new ResponseEntity<>(result, HttpStatus.OK);
+//		}
+//		return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+//		
+//		
+//	}
+	
+	@PostMapping(value="/txn/cancel",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<Object> cancleTxnViaYono(@RequestBody EisEncReq eisEncReq) {
+		EISYonoResponse response = new EISYonoResponse();
+		EisEncResponse resp = new EisEncResponse();
+		String result = null;
+		try {
+		if (!StringUtils.isEmpty(eisEncReq.getEisEncReq())) {
+
+			ObjectMapper objectMapper=new ObjectMapper();
+
+			String decrReq = EncryptionDecryption.decrypt(eisEncReq.getEisEncReq());
+
+			EISYonoRequest req = null;
+
+			req= objectMapper.readValue(decrReq, EISYonoRequest.class);
+
+			eisYonoService.cancelTxn(req.getTransactionReferenceID(), response);
+			result = EncryptionDecryption.encrypt(objectMapper.writeValueAsString(response));
+			resp.setEisEncResp(result);
+			resp.setStatusCode("200");
+			return new ResponseEntity<>(resp, HttpStatus.OK);
+		}else{
+			return new ResponseEntity<>(resp, HttpStatus.BAD_REQUEST);
+		}
+		}catch(Exception ex){
+			resp.setEisEncResp(result);
+			resp.setStatusCode("300");
+			return new ResponseEntity<>(resp, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	@PostMapping(value="lav/txn/cancel",consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<Object> cancleTxn(@RequestBody EISYonoRequest eisEncReq) throws JsonProcessingException {
+		
+		//eisEncReq.setEisEncReq("FXYON202504251156013");
+		ObjectMapper map=new ObjectMapper();
+		String json=map.writeValueAsString(eisEncReq);
+		System.out.println(json);
+		String enc=EncryptionDecryption.encrypt(json);
+		System.out.println("enc"+enc);
+		
+		String decReq=EncryptionDecryption.decrypt(enc);
+		System.out.println("decReq"+decReq);
+		return null;
+		
+		
+		}
+	
+	
+}
+package com.sbi.fxout.model;
+
+public class EISYonoRequest {
+	
+	String transactionReferenceID;
+
+	public String getTransactionReferenceID() {
+		return transactionReferenceID;
+	}
+
+	public void setTransactionReferenceID(String transactionReferenceID) {
+		this.transactionReferenceID = transactionReferenceID;
+	}
+	
+	String cifNumber;
+	String strtDte;
+	String endDte;
+
+	public String getCifNumber() {
+		return cifNumber;
+	}
+
+	public void setCifNumber(String cifNumber) {
+		this.cifNumber = cifNumber;
+	}
+
+	public String getStrtDte() {
+		return strtDte;
+	}
+
+	public void setStrtDte(String strtDte) {
+		this.strtDte = strtDte;
+	}
+
+	public String getEndDte() {
+		return endDte;
+	}
+
+	public void setEndDte(String endDte) {
+		this.endDte = endDte;
+	}
+	
+
+}
+package com.sbi.fxout.service;
+
+import java.util.List;
+
+import com.sbi.fxout.model.EISYonoRequest;
+import com.sbi.fxout.model.EISYonoResponse;
+import com.sbi.fxout.model.MT103MsgResponse;
+import com.sbi.fxout.model.TxnHistoryModel;
+import com.sbi.fxout.model.TxnHistoryResponse;
+
+public interface EisYonoService {
+	
+	public abstract String cancelTxn(String refNumber,EISYonoResponse response);
+	
+	public abstract String getMT103MsgDetailsByRefNo(String refNumber,MT103MsgResponse response);
+	public abstract String getTxnHistory(EISYonoRequest eisReq,TxnHistoryResponse response);
+
+}
+package com.sbi.fxout.service;
+
+import java.sql.SQLException;
+import java.util.List;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.sbi.fxout.dao.EisYonoDaoService;
+import com.sbi.fxout.model.EISYonoRequest;
+import com.sbi.fxout.model.EISYonoResponse;
+import com.sbi.fxout.model.MT103MsgResponse;
+import com.sbi.fxout.model.TxnHistoryModel;
+import com.sbi.fxout.model.TxnHistoryResponse;
+import com.sbi.fxout.model.YonoTxnModel;
+import com.sbi.fxout.util.CommonUtil;
+import com.sbi.fxout.util.Constants;
+
+@Service
+public class EisYonoServiceImpl implements EisYonoService {
+
+	public final static Logger logger =  LogManager.getLogger(EisYonoServiceImpl.class);
+
+	@Autowired
+	EisYonoDaoService eisYonoDaoService;
+	@Override
+	public String cancelTxn(String refNumber, EISYonoResponse response) {
+		// TODO Auto-generated method stub
+		logger.debug("cancelTxn started {}", refNumber);
+		String result = null;
+		try {
+			response.setTransactionReferenceID(refNumber);
+			int txnCount = eisYonoDaoService.getTxnForCancel(refNumber);
+			logger.debug("cancelTxn txnCount {}", txnCount);
+			if (txnCount > 0) {
+				YonoTxnModel txnModel = eisYonoDaoService.getTxnStatusAndCount(refNumber);
+				logger.debug("cancelTxn txnModel.getTxnStatus() {}", txnModel.getTxnStatus());
+				if (!txnModel.getTxnStatus().equalsIgnoreCase(Constants.STATUS_CANCELLED)) {
+					int up = eisYonoDaoService.cancelTxn(refNumber);
+					if (up == 1) {
+						response.setStatusDescription(Constants.TRANSACTION_CANCELED_SUCCESSFULLY);
+						response.setStatusCode(Constants.TXN_CANCELED_CODE);
+					} else {
+						response.setStatusDescription(Constants.TRANSACTION_PROCESSED_AND_CANNOT_BE_CANCELED);
+						response.setStatusCode(Constants.TRANSACTION_PROCESSED_CODE);
+					}
+				} else {
+					response.setStatusDescription(Constants.TRANSACTION_ALLREADY_CANCELED);
+					response.setStatusCode(Constants.TRANSACTION_PROCESSED_CODE);
+				}
+
+			} else {
+				response.setStatusDescription(Constants.TRANSACTION_NOT_FOUND);
+				response.setStatusCode(Constants.TRANSACTION_NOT_FOUND_CODE);
+			}
+
+			result = "Success";
+		} catch (SQLException e) {
+			logger.debug("SQLException in cancelTxn  {}", e.getMessage());
+			response.setStatusDescription("Failed to Cancel Transaction");
+			result = "Failed";
+		}
+		logger.debug("cancelTxn end{}", refNumber);
+		return result;
+	}
+	@Override
+	public String getMT103MsgDetailsByRefNo(String refNumber, MT103MsgResponse response) {
+		// TODO Auto-generated method stub
+		try {
+			YonoTxnModel txnModel = eisYonoDaoService.fetchMT103MsgByRefNum(refNumber);
+			if(null !=txnModel){
+				response.setTransactionReferenceID(refNumber);
+				response.setMt103Details(txnModel.getmT103msg());
+				response.setStatusDescription(Constants.MT103_DETAILS_FETCHED);
+				response.setStatusCode(Constants.DETAILS_FETCHED_CODE);
+			}else{
+				response.setTransactionReferenceID(refNumber);
+				response.setStatusDescription(Constants.MT103_DETAILS_NOT_FOUND);
+				response.setStatusCode(Constants.TRANSACTION_NOT_FOUND_CODE);
+			}
+			
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return null;
+	}
+	@Override
+	public String getTxnHistory(EISYonoRequest eisReq,TxnHistoryResponse response) {
+		// TODO Auto-generated method stub
+		List<TxnHistoryModel> txnList=null;;
+		try {
+			String startDate= CommonUtil.formattedDate(eisReq.getStrtDte(),"yyyy-MM-dd", "dd-MMM-yy");
+			String endDate= CommonUtil.formattedDate(eisReq.getEndDte(),"yyyy-MM-dd", "dd-MMM-yy");
+			txnList=eisYonoDaoService.fetchTxnHistory(eisReq.getCifNumber(), startDate, endDate);
+			if(null !=txnList &&txnList.size()>0 ){
+				response.setData(txnList);
+				response.setStatusCode(Constants.DETAILS_FETCHED_CODE);
+				response.setStatusDescription("Transaction History Fetched");
+				response.setTotalCount(Integer.toString(txnList.size()));
+			}else{
+				response.setStatusCode(Constants.TRANSACTION_NOT_FOUND_CODE);
+				response.setStatusDescription("Transaction History Not Found");
+				response.setTotalCount(Integer.toString(txnList.size()));
+			}
+			
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			response.setStatusCode(Constants.DETAILS_FETCHED_CODE);
+			response.setStatusDescription(e.getMessage());
+		}
+		return "Done";
+	}
+
+}
+package com.sbi.fxout.dao;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.stereotype.Repository;
+
+import com.sbi.fxout.model.BeneficiaryBankDetails;
+import com.sbi.fxout.model.TxnHistoryModel;
+import com.sbi.fxout.model.YonoTxnModel;
+import com.sbi.fxout.util.Constants;
+
+@Repository
+public class EisYonoDaoServiceImpl implements EisYonoDaoService {
+	public final static Logger logger =  LogManager.getLogger(EisYonoDaoServiceImpl.class);
+	
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
+	@Override
+	public int cancelTxn(String RefNumber)throws SQLException {
+		// TODO Auto-generated method stub
+		logger.debug("cancelTxn start {}",RefNumber);
+		int count = 0;
+		 Object[] params= {Constants.STATUS_CANCELLED,Constants.STATUS_CANCELLED,RefNumber,"wait_p_cred","l1_approved"};
+		count = jdbcTemplate.update(SQLConstant.CANCEL_YONO_TXN, params);
+		logger.debug("cancelTxn RefNumber  end {}",RefNumber+"and count "+count);
+		return count;
+	}
+
+	@Override
+	public int getTxnForCancel(String RefNumber) throws SQLException{
+		// TODO Auto-generated method stub
+		int count = 0;
+		 Object[] params= {RefNumber};
+		count = jdbcTemplate.queryForObject(SQLConstant.GET_YONO_TXN_FOR_CANCEL, params,Integer.class);
+		
+		return count;
+	}
+	
+	@Override
+	public YonoTxnModel getTxnStatusAndCount(String RefNumber) throws SQLException{
+		// TODO Auto-generated method stub
+		logger.debug("getTxnStatusAndCount start {}",RefNumber);
+		 Object[] params= {RefNumber};
+		 YonoTxnModel modelData = (YonoTxnModel) jdbcTemplate.queryForObject(SQLConstant.GET_YONO_TXN_FOR_STATUS_COUNT, params,new CancelYonoTxnRowMapper());
+		 logger.debug("getTxnStatusAndCount end {}",RefNumber);
+		return modelData;
+	}
+	
+	
+	
+	class CancelYonoTxnRowMapper implements RowMapper {
+
+		public Object mapRow(ResultSet rs, int index) throws SQLException {
+			YonoTxnModel model=new YonoTxnModel();
+			model.setCount(rs.getInt("count"));
+			model.setTxnStatus(rs.getString("status"));
+			model.setTxnPstatus(rs.getString("present_status"));
+			return model;
+		}
+
+	}
+	
+	class Mt103RowMapper implements RowMapper {
+
+		public Object mapRow(ResultSet rs, int index) throws SQLException {
+			YonoTxnModel model=new YonoTxnModel();
+				model.setmT103msg(rs.getString("mt103Msg"));
+		
+			return model;
+		}
+
+	}
+
+
+
+	@Override
+	public YonoTxnModel fetchMT103MsgByRefNum(String RefNumber) throws SQLException {
+		// TODO Auto-generated method stub
+		logger.debug("getTxnStatusAndCount start {}",RefNumber);
+		 YonoTxnModel modelData=null;
+		try{
+		 Object[] params= {RefNumber};
+//		 modelData = (YonoTxnModel) jdbcTemplate.queryForObject(SQLConstant.GET_MT103MSG, params,new Mt103RowMapper());
+		 List<YonoTxnModel>modelDatalist = jdbcTemplate.query(SQLConstant.GET_MT103MSG, params,new Mt103RowMapper());
+		 logger.debug("getTxnStatusAndCount end {}",RefNumber);
+		 if(modelDatalist.size()>0){
+			 modelData= modelDatalist.get(0);
+		 }
+		}catch(Exception ex){
+			System.out.println(ex.getMessage());
+			ex.printStackTrace();
+		}
+		return modelData;
+	}
+
+	@Override
+	public List<TxnHistoryModel> fetchTxnHistory(String cifNumber, String strDate, String endDate) throws SQLException {
+		// TODO Auto-generated method stub
+		List<TxnHistoryModel>modelDatalist=null;
+
+		Object[] params= {cifNumber,cifNumber,strDate,endDate};
+		 modelDatalist = jdbcTemplate.query(SQLConstant.GET_TXN_HISTORY, params,new TxnHistRowMapper());
+		return modelDatalist;
+	}
+	
+	class TxnHistRowMapper implements RowMapper {
+
+		public Object mapRow(ResultSet rs, int index) throws SQLException {
+			TxnHistoryModel model=new TxnHistoryModel();
+			try{
+			BeneficiaryBankDetails benBankDet=new BeneficiaryBankDetails();
+			model.setReferenceNumber(rs.getString("reference_number"));
+			model.setSrNo(rs.getString("SrNo"));
+			model.setBeneficiaryName(rs.getString("beneficiary_name"));
+			benBankDet.setName(rs.getString("beneficiary_bank_name"));
+			benBankDet.setAddress(rs.getString("beneficiary_bank_address"));
+			model.setBeneficiaryBankDetails(benBankDet);
+			model.setBeneficiaryAccountnumber(rs.getString("beneficiary_account_number"));
+			model.setTotalINRAmount(rs.getString("total_inr_amount"));
+			model.setCurrency(rs.getString("currency"));
+			model.setForeignCurrencyAmount(rs.getString("foreign_currency_amount"));
+			model.setTcsAmount(rs.getString("tcs_amount"));
+			model.setSbiCharges(rs.getString("sbi_charges"));
+			model.setGstAmount(rs.getString("gst_amount"));
+			model.setSwiftcode(rs.getString("swift_code"));
+			model.setPurposeCode(rs.getString("purpose_code"));
+			model.setChargesType(rs.getString("Charges_Type"));
+			model.setCreationDate(rs.getString("creation_date"));
+			model.setSwiftSentDate(rs.getString("swift_sent_date"));
+			model.setUltimateBeneficiaryCountry(rs.getString("ultimate_beneficiary_country"));
+			model.setStatusOfPayment(rs.getString("status_of_payment"));
+			model.setRemark(rs.getString("Remark"));
+			model.setTransactionRemarks(rs.getString("Transaction_Remarks"));
+			model.setRemitterAccount(rs.getString("remitter_account"));
+			
+			}catch (Exception e) {
+				logger.debug("Exception in  TxnHistRowMapper for SrNo "+model.getSrNo()+" Refrence Number "+model.getReferenceNumber()+" Exception "+e.getMessage());
+			}
+			
+			
+			return model;
+		}
+
+	}
+}
+/*
+ * Class                : FXOUTDaoImpl
+ * Version info         : 1.0
+ * Copyright notice : Satyam Computer Services Ltd.
+ * <2>   Chandan Gupta 31-Dec-2021 Changes_For_DM2021100755 Changes are done for 
+ *		 getting exchange rate for given Currency and Currency in USD
+ */
+
+package com.sbi.fxout.dao;
+
+public class SQLConstant {
+
+	public static String NEXT_SOURCE_TID = "select ('INB' || LPAD(INB_SQE_NO.nextval,12, 0)) as INB_REF from dual";
+
+	public static String INSERT_REQUEST_DETAILS = " Insert into FXOUT_INB_REM_BEN_DETAILS "
+			+ "(REFERENCE_NUMBER,REM_ACC_NUMBER,REM_NAME,REM_ACC_TYPE,REM_ADDRESS,REM_PIN_CODE,REM_PAN,REM_MOBILE_NUMBER,REM_EMAIL,REM_DOB,REM_POB,BEN_ACC_NUMBER,BEN_NAME,BEN_ADDRESS,"
+			+ "BEN_BANK_NAME,BEN_BANK_ADDRESS,BEN_BANK_CODE,BEN_DEST_COUNTRY,BEN_DEST_CURRENCY,BEN_DOB,BEN_POB,CREATION_TIME,REM_CIF_CODE,ULTIMATE_BEN_COUNTRY,ULTIMATE_COUNTRY_DESC,REQUEST_TYPE)"
+			+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate,?,?,?,?)";
+
+	public static String INSERT_TRANS_REQUEST_DETAILS = "INSERT INTO FXOUT_INB_TRANSACTION_DETAILS"
+			+ "(TXN_REF_NO, INB_DETAILS_REF_NO, FOREIGN_CURRENCY_AMT, CHARGE_TYPE, CHARGE_AMT, TOTAL_FC_AMT, TOTAL_AMT, GST, TOTAL_DEBIT_AMT, PURPOSE, REM_TO_BEN, CREATION_TIME) "
+			+ "VALUES" + "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate)";
+
+	public static String UPDATE_BEN_OFAC_STATUS = "UPDATE FXOUT_INB_REM_BEN_DETAILS SET LAST_MODIFIED_DATE = SYSDATE, "
+			+ " MODIFIED_BY = 'system', BEN_OFAC_STATUS = ?, BEN_OFAC_REMARKS = ?  WHERE REFERENCE_NUMBER = ?";
+
+	public static String UPDATE_REM_OFAC_STATUS = "UPDATE FXOUT_INB_REM_BEN_DETAILS SET LAST_MODIFIED_DATE = SYSDATE, "
+			+ " MODIFIED_BY = 'system', REM_OFAC_STATUS = ?, REM_OFAC_REMARKS = ?  WHERE REFERENCE_NUMBER = ?";
+
+	public static String GET_BIC_CODE = "select BANK_ADDRESS from FXOUT_BIC_MASTER_TEMP where BIC_CODE = ? and ROWNUM =1";
+	public static String GET_ABA_CODE = "select BANK_ADDRESS from FXOUT_ABA_MASTER where ABA_ROUTING_NO = ? and ROWNUM =1";
+	public static String GET_BIC_CODE_FOR_BSB = "select BSB_BIC_CODE from FXOUT_BSB_BIC_MASTER where BSB_NUMBER = ? and ROWNUM =1";
+
+	public static String INSERT_INTO_FXOUT_BEN_ACCOUNT_MASTER = "Insert into FXOUT_BEN_ACCOUNT_MASTER (BEN_REF_NO,BEN_BANK_SWIFT_CODE,BEN_ACCOUNT_NO,BEN_CURRENCY,BEN_NAME,BEN_BANK_NAME,BEN_BANK_ADD1,CREATED_BY,CREATION_DATE,"
+			+ " BEN_ADD1,BEN_COUNTRY,BSB_NUMBER,SWIFT_TYPE,ULTIMATE_COUNTRY_CODE,ULTIMATE_COUNTRY_DESC,GIC_TYPE,BEN_PIN) values (?,?,?,?,?,?,?,'*system',sysdate,?,?,?,?,?,?,?,?)";
+
+	public static String INSERT_INTO_FXOUT_REM_ACCOUNT_MASTER = "Insert into FXOUT_REMITTER_MASTER (REM_REF_NO,REM_ACC,REM_NME,REM_ADD1,REM_PAN,REM_PAN_NO,REM_MOBILE,REM_EMAIL,CREATED_BY,"
+			+ "CREATION_DATE,REM_ACC_TYPE,REM_PIN_NO,REM_CIF_CODE,BRANCH_CODE, ACCOUNT_DESC,REM_NME_ORIGINAL) values (?,?,?,?,?,?,?,?,'system',sysdate,?,?,?,?,?,?)";
+
+	public static String GET_TRANS_SEQ_NUMBER = "SELECT '01111'||TO_CHAR(SYSDATE, 'YY')||'TS1'||LPAD(FXOUT_TRAN_SEQ.NEXTVAL,6,'0') AS SEQNUMBER FROM DUAL";
+
+	public static String INSERT_INTO_FXOUT_CUSTOMER_PAYMENT = "insert into FXOUT_CUSTOMER_PAYMENT(" 
+			+ " TXN_REF_NO,REM_REF_NO,BEN_REF_NO,TRAN_FC_TYPE,TRAN_FC_DESC,BEN_COUNTRY_DESC,PRESENT_STATUS,STATUS,CREATED_BY,CREATION_DATE,PURPOSE,SUB_PURPOSE_CODE,REMARKS,BEN_COUNTRY_CODE, "
+			+ " TRAN_FC_AMOUNT,CHARGE_CAL_TYPE,TOTAL_FC_AMOUNT,INR_SUB_TOTAL,TOTAL_INR_AMOUNT,REM_ADDRESS,BEN_ADDRESS,BANK_CODE,L1_APPROVED_BY,DISP_CHARGE,SERVICE_TAX,TRAN_MODE,INIT_BRANCH_NO,"
+			+ " CREDIT_FC_AMOUNT,DIRECT_EXCHANGE,DISP_EXCHANGE,EXOTIC_EXCHANGE,CORRES_BANK,EXOTIC_FLAG,GLS_CHARGE_IN_FC,CURRES_CHARGE_IN_FC,TRAN_AMOUNT_USD,CERT_FLAG,TCS_AMOUNT,LRS_TOKEN_ID) "
+			+ " values "
+			+ "(?,?,?,?,?,?,'processing','l1_approved','system',sysdate,?,?,?,?,?,?,?,?,?,?,?,'00','system',?,?,'INB_FXOUT','INB',?,?,?,?,?,?,?,?,?,?,?,?)";
+
+	public static String UPDATE_BIC_STATUS = "update FXOUT_INB_REM_BEN_DETAILS set Bic_Status=? where Reference_Number=?";
+
+	public static final String INSERT_INTO_FXOUT_TEST_STATUS = "insert into FXOUT_TEST_STATUS(TEST_NAME,REFERENCE_NO,STATUS,WORKFLOW_ID,INITIATED_TIME )"
+			+ "select distinct LAST_EVENT,?,'pending','fxo_trans_validation',sysdate from WAC_FLOW_CONTROL_MASTER "
+			+ " where WORKFLOW_ID='fxo_trans_validation'  and WORKFLOW_ID in ('fxo_trans_validation') ";
+
+	public static final String UPDATE_START_STEP_INTO_TEST_STATUS = "update FXOUT_TEST_STATUS set status='success' where test_name='fxout_trans_start_steps' and reference_no=?";
+
+	public static final String GET_OFAC_STATUS = "SELECT REM_OFAC_STATUS, BEN_OFAC_STATUS FROM Fxout_Inb_Rem_Ben_Details WHERE REFERENCE_NUMBER=?";
+	public static final String GET_OFAC_STATUS_IndoNepal = "SELECT REM_OFAC_STATUS, BEN_OFAC_STATUS FROM FXOUT_INB_NSBL_REMBEN_DETAILS WHERE REFERENCE_NUMBER=?";
+
+	public static final String GET_TXN_OFAC_STATUS = "select REM_OFAC,Ben_Ofac,Rem_Aml,Ben_Aml,Ofac_Remarks,Aml_Remarks,AUTHORISED_REMARKS,status,PRESENT_STATUS from Fxout_Customer_Payment where Txn_Ref_No In"
+			+ "(SELECT TXN_REF_NO FROM FXOUT_INB_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO=?)"
+			+ "  union all "
+			+ "select REM_OFAC,Ben_Ofac,Rem_Aml,Ben_Aml,Ofac_Remarks,Aml_Remarks,AUTHORISED_REMARKS,status,PRESENT_STATUS from FLYWIRE_Customer_Payment where Txn_Ref_No In"
+			+ "(SELECT TXN_REF_NO FROM FXOUT_INB_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO=?)";
+	
+	public static final String GET_TXN_STATUS = "select present_status,status from Fxout_Customer_Payment where Txn_Ref_No in (SELECT TXN_REF_NO FROM FXOUT_INB_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO= ?)";
+
+	public static final String GET_MERCURY_STATUS = "select mc_error_code,mc_error_description from fxout_credit_details where related_ref_no In"
+			+ "(SELECT TXN_REF_NO FROM FXOUT_INB_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO=?)";
+
+	public static final String INSERT_INTO_INB_ENQUIRY_TBL = "Insert into FXOUT_INB_ENQUIRY (INB_REF_NO,ENQUIRY_TYPE,RESPONSE,CREATION_DATE) values (?,?,?,sysdate)";
+
+	public static final String CHECK_SOURCE_ID = "SELECT count(*) check_id FROM Fxout_Inb_Rem_Ben_Details where REFERENCE_NUMBER = ?";
+	
+	// Changes_For_DM2021100755 (S)
+	public static final String RATE_CARD_SPL = "select  EXCHANGE_RATE from FXOUT_SPL_EXCHANGE_RATE_MASTER where CURRENCY_TYPE = ? ";
+	public static final String RATE_CARD_NORMAL = "select  EXCHANGE_RATE from FXOUT_EXCHANGE_RATE_MASTER where CURRENCY_TYPE = ? ";
+	// Changes_For_DM2021100755 (E)
+	
+	public static final String RATE_CARD_ALL = "select CURRENCY_TYPE, EXCHANGE_RATE from FXOUT_SPL_EXCHANGE_RATE_MASTER where CURRENCY_TYPE in('USD','EUR','GBP','AUD','CAD','SGD')";
+	public static String SELECT_SUB_PURPOSE_CODE = "select SUB_PURPOSE_CODE from fxout_rbi_purpose where PURPOSE_CODE = ? and DIP_STATUS = 'active'";
+	
+	public static String SELECT_PRIVILEGE_USER = "SELECT USER_ID FROM FXOUT_USER WHERE ALLOCATION_FLAG='Y' AND ROLE_ID='7' AND STATUS='active'  and ROWNUM < 2";
+	public static String BANK_NAME ="select BANK_NAME from FXOUT_BIC_MASTER where BIC_FLAG='A' and CURRENCY=? ";
+	
+	public static String INSERT_REQUEST_TOKEN = "INSERT INTO FXOUT_INB_TOKEN_DETAILS (REQUEST_ID, USERNAME, REQUEST_TYPE, REQUEST_MSG, REQUEST_TIME ) VALUES( ?, ?, ?, ?, ?)";
+	public static String UPDATE_REQUEST_TOKEN = "UPDATE FXOUT_INB_TOKEN_DETAILS set TOKEN_ID = ?, REQUEST_STATUS= ? , STATUS_CODE = ? , RESPONSE_MSG = ? , RESPONSE_TIME = ?  WHERE REQUEST_ID = ? ";
+	public static final String USER_PROFILE = "SELECT USERID, USERNAME, TOKEN, TOKEN_CREATE_TIME, TOKEN_EXPIRE_TIME, TOKEN_CREATE_TIME_24HFORMAT, TOKEN_EXPIRE_TIME_24HFORMAT  FROM USER_PROFILE WHERE USERNAME = ? ";
+	public static String UPDATE_USER_PROFILE_ENTITY = "UPDATE USER_PROFILE SET TOKEN = ? , TOKEN_CREATE_TIME = ? , TOKEN_EXPIRE_TIME = ? ,TOKEN_CREATE_TIME_24HFORMAT = ? , TOKEN_EXPIRE_TIME_24HFORMAT= ?  where USERNAME = ? ";
+	//public static String UPDATE_USER_PROFILE_ENTITY = "UPDATE USER_PROFILE SET TOKEN = ? , TOKEN_CREATE_TIME = ? , TOKEN_EXPIRE_TIME = ? ,TOKEN_CREATE_TIME_24HFORMAT = ? , TOKEN_EXPIRE_TIME_24HFORMAT= ?, STATUS = ?  where USERNAME = ? ";
+	public static final String GET_COUNTRY_DESC = "select COUNTRY_NAME from FXOUT_COUNTRY_MASTER where COUNTRY_CODE=? and status='Y'";
+
+//added by yogita
+	public static final String FETCH_PRODUCT_CODE = "select count(*) from fxout_product_code_details where product_code = ? and CREDITABLE='Y'";
+
+	public static final String INSERT_CORE_REQUEST = "INSERT INTO FXOUT_INB_CORE_TRAN_DETAILS (ACCOUNT_NUM , CORE_REQUEST , REQUEST_TIME , REFERENCE_NUM) VALUES (?,?,SYSDATE,?)";
+
+	public static final String INSERT_CORE_RESPONSE = "UPDATE FXOUT_INB_CORE_TRAN_DETAILS SET CORE_RESPONSE =? ,RESPONSE_TIME = SYSDATE WHERE REFERENCE_NUM = ?";
+
+	public static final String INSERT_PRODUCT_CODE = "UPDATE FXOUT_INB_CORE_TRAN_DETAILS SET PRODUCT_CODE= ? WHERE REFERENCE_NUM = ?";
+
+	public static final String UPDATE_ERROR_MESG = "UPDATE FXOUT_INB_REM_BEN_DETAILS SET REASON = ? , STATUS = ? WHERE REFERENCE_NUMBER = ?";
+	
+	public static final String fetchNROStatus = "SELECT decode(INSTRB(product_desc,'NRE'),0,'01','00') NRO_STATUS FROM fxout_product_code_details WHERE PRODUCT_CODE = ? and CREDITABLE='Y'";
+//end by yogita
+	
+	public static final String GET_IndoNepalTRANS_SEQ_NUMBER = "SELECT TO_CHAR(SYSDATE,'DDMMYYYY')||LPAD(NSBL_CUST_SEQ.NEXTVAL,8,'0') AS SEQNUMBER FROM DUAL";
+
+	public static final String FXOUT_NSBL_TRAN_CREATION = "INSERT INTO FXOUT_NSBL_CUSTOMER_PAYMENT (REFERENCE_NO, REM_REF_NO, BEN_REF_NO,present_status,STATUS,CREATION_DATE,LAST_MODIFIED_DATE,PURPOSE,TRAN_CURRENCY_TYPE,TXN_AMOUNT_INR,GLS_CHARGE_IN_INR,DISP_EXCHANGE,TXN_AMOUNT_NPR,INR_SUB_TOTAL,TOTAL_INR_AMOUNT,NB_FINACLE_COMM_INR,CREDIT_AMOUNT_INR,REMARKS,CREATED_BY,TRAN_MODE,CHARGE_CAL_TYPE,INIT_BRANCH_NO,L1_APPROVED_BY,REM_CODE,BEN_CODE,RBI_PURPOSE)VALUES (?,?,?,'inprocess','l1_approved',SYSDATE,SYSDATE,?,?,?,?,?,?,?,?,?,?,?,'system','INB_FXOUT',?,'INB','system',?,?,?)";//added by vijendra rem and ben doe for purpose code 
+
+	public static final String NSBL_REM_CREATION = "INSERT INTO FXOUT_NSBL_REM_DETAILS(REM_REF_NO, REM_ACC_NO, REM_NAME, REM_ADD1, REM_PAN, REM_MOBILE, REM_EMAIL, CREATION_DATE, LAST_MODIFIED_DATE, REM_ACC_TYPE,REM_PIN_NO,IFSC_CODE) VALUES(?,?,?,?,?,?,?,SYSDATE,SYSDATE,?,?,?)";
+
+	public static final String NSBL_BEN_CREATION = "INSERT INTO FXOUT_NSBL_BEN_DETAILS (BEN_REFERENCE_NO,BEN_NAME,ADDRESS,COUNTRY,BEN_BANK_NAME,BEN_ACCOUNT_NO,CREATION_TIME, "
+			 									+"LAST_MOD_DATE,BEN_IDENTIFICATION_TYPE,BEN_IDENTIFICATION_NO,CITY,CREDIT_MODE,MOBILE_NO,BIC_CODE,BEN_BRANCH_NAME,BENE_DISTRICT,BENE_WARD,BENE_BRANCH_ADDRESS) " 
+	 											+"VALUES(?,?,?,?,?,?,SYSDATE,SYSDATE,?,?,?,?,?,?,?,?,?,?)";
+
+	public static final String NSBL_TRANS_CREATION = "INSERT INTO fxout_inb_nsbl_transaction_details (TXN_REF_NO, INB_DETAILS_REF_NO, CURRENCY_TYPE, CHARGE_TYPE, TOTAL_AMT, NSBL_CHARGES, BRANCH_COMMISION, TOTAL_DEBIT_AMT,PURPOSE, ADDITIONAL_COMMENTS, CREATION_TIME) " +
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate)";
+
+	public static final String NSBL_REMBEN_CREATION = "Insert into FXOUT_INB_NSBL_REMBEN_DETAILS (REFERENCE_NUMBER,REM_ACC_NUMBER,REM_NAME,REM_ACC_TYPE,REM_ADDRESS,REM_PIN_CODE," +
+			"REM_PAN,REM_MOBILE_NUMBER,REM_EMAIL,REM_DOB,REM_POB,REM_BRANCH_CODE,REM_CIF_CODE,BEN_ACC_NUMBER,BEN_NAME,BEN_ADDRESS,BEN_BANK_NAME,BEN_BANK_ADDRESS," +
+			"BEN_BANK_CODE,BEN_COUNTRY,BEN_CURRENCY,BEN_DOB,BEN_POB,BEN_SWIFT_CODE,BEN_BRANCH_CODE,BEN_BENACH_NAME,BEN_ANOTHER_ACCOUNTNO,BEN_WARD,BEN_CITY,BEN_DISTRICT," +
+			"BEN_IDENTIFICATION_TYPE,BEN_IDENTIFICATION_NO,CREATION_TIME,CREDIT_MODE) VALUES (?, ?, ?, ?, ?, ?, ?, ?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?,?,?, ?,sysdate,?)";
+
+	public static final String INSERT_INTO_FXOUT_TEST_STATUS_NSBL = "insert into FXOUT_TEST_STATUS(TEST_NAME,REFERENCE_NO,STATUS,WORKFLOW_ID,INITIATED_TIME )select distinct LAST_EVENT,?,'pending','fxout_nsbl_tran_val',sysdate from WAC_FLOW_CONTROL_MASTER " +
+  " where WORKFLOW_ID='fxout_nsbl_tran_val'  and WORKFLOW_ID in ('fxout_nsbl_tran_val')";
+
+	
+	public static final String GET_TXN_OFAC_STATUS_IndoNepal = "select REM_OFAC,Ben_Ofac,Rem_Aml,Ben_Aml,Ofac_Remarks,Aml_Remarks,AUTHORISED_REMARKS,status,PRESENT_STATUS,txn_status from FXOUT_NSBL_CUSTOMER_PAYMENT where REFERENCE_NO In" +
+			"(SELECT TXN_REF_NO FROM FXOUT_INB_NSBL_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO=?)";
+	
+	public static final String UPDATE_START_STEP_INTO_TEST_STATUS_NSBL = "update FXOUT_TEST_STATUS set status='success' where test_name='fxout_nsbl_trans_start_step' and reference_no=?";
+
+	public static final String UPDATE_BEN_OFAC_STATUS_IndoNepal = "UPDATE FXOUT_INB_NSBL_REMBEN_DETAILS SET LAST_MODIFIED_DATE = SYSDATE,  MODIFIED_BY = 'system', BEN_OFAC_STATUS = ?, BEN_OFAC_REMARKS = ?  WHERE REFERENCE_NUMBER = ?";
+
+	public static final String UPDATE_REM_OFAC_STATUS_IndoNepal = "UPDATE FXOUT_INB_NSBL_REMBEN_DETAILS SET LAST_MODIFIED_DATE = SYSDATE,  MODIFIED_BY = 'system', REM_OFAC_STATUS = ?, REM_OFAC_REMARKS = ?  WHERE REFERENCE_NUMBER = ?";
+
+	public static final String CHECK_SOURCE_ID_IndoNepal = "SELECT count(*) check_id FROM FXOUT_INB_NSBL_REMBEN_DETAILS where REFERENCE_NUMBER=?";
+
+	public static final String CHECK_PANNUMBR_IN_FTR_TABLE = "select * from FRT_PAN_DETAILS where pan=?";
+
+	public static final String fetchSpecifiedcertflag = "select SPECIFIED_PERSON_US_206AB_AND_206CCA from FRT_PAN_DETAILS where pan=?";
+	
+	//CHANGES BY AKSHAY FOR FLYWIRE
+	
+	public static String INSERT_INTO_FLYWIRE_CUSTOMER_PAYMENT = "insert into FLYWIRE_CUSTOMER_PAYMENT(" 
+				+ "FLYWIRE_REF_NO, TXN_REF_NO,REM_REF_NO,BEN_REF_NO,TRAN_FC_TYPE,TRAN_FC_DESC,BEN_COUNTRY_DESC,PRESENT_STATUS,STATUS,CREATED_BY,CREATION_DATE,PURPOSE,SUB_PURPOSE_CODE,REMARKS,BEN_COUNTRY_CODE, "
+				+ " TRAN_FC_AMOUNT,CHARGE_CAL_TYPE,TOTAL_FC_AMOUNT,INR_SUB_TOTAL,TOTAL_INR_AMOUNT,REM_ADDRESS,BEN_ADDRESS,BANK_CODE,L1_APPROVED_BY,DISP_CHARGE,SERVICE_TAX,TRAN_MODE,INIT_BRANCH_NO,"
+				+ " CREDIT_FC_AMOUNT,DIRECT_EXCHANGE,DISP_EXCHANGE,EXOTIC_EXCHANGE,CORRES_BANK,EXOTIC_FLAG,GLS_CHARGE_IN_FC,CURRES_CHARGE_IN_FC,TRAN_AMOUNT_USD,CERT_FLAG,TCS_AMOUNT,LRS_TOKEN_ID) "
+				+ " values "
+				+ "(?,?,?,?,?,?,?,'','l1_approved','system',sysdate,?,?,?,?,?,?,?,?,?,?,?,'00','system',?,?,'INB_FXOUT','INB',?,?,?,?,?,?,?,?,?,?,?,?)";
+
+	
+	public static final String INSERT_INTO_FLYWIRE_FXOUT_TEST_STATUS = "insert into FXOUT_TEST_STATUS(TEST_NAME,REFERENCE_NO,STATUS,WORKFLOW_ID,INITIATED_TIME )"
+			+ "select distinct LAST_EVENT,?,'pending','flywire_validation',sysdate from WAC_FLOW_CONTROL_MASTER "
+			+ " where WORKFLOW_ID='flywire_validation'  and WORKFLOW_ID in ('flywire_validation') ";
+	
+	public static final String UPDATE_FLYWIRE_START_STEP_INTO_TEST_STATUS = "update FXOUT_TEST_STATUS set status='success' where test_name='flywire_trans_start_steps' and reference_no=?";
+
+	public static final String FETCH_SEQ="select max(CONS_REF_NO) from FLYWIRE_CUSTOMER_PAYMENT "
+												+ "WHERE TRAN_FC_TYPE=? AND trunc(CREATION_DATE) "
+												+ "BETWEEN trunc(SYSDATE)" 
+												+" AND trunc(SYSDATE)";
+	
+	
+	//Added by Maithili for Flywire (S)
+	public static final String GET_BIC_CODE_VALUE_FROM_CURRENCY = "Select bic_code from fxout_flywire_ben_details where fc_currency = ? ";
+	public static final String GET_DESTINATION_COUNTRY_VALUE_FROM_CURRENCY = "Select destination_country from fxout_flywire_ben_details where fc_currency = ? ";
+	public static final String GET_BANK_ADDRESS_VALUE_FROM_CURRENCY = "Select company_address from fxout_flywire_ben_details where fc_currency = ? ";
+	public static final String GET_BANK_NAME_VALUE_FROM_CURRENCY = "Select company_name from fxout_flywire_ben_details where fc_currency = ? ";
+	public static final String GET_BEN_ACCOUNT_VALUE_FROM_CURRENCY = "Select account_no from fxout_flywire_ben_details where fc_currency = ? ";
+	public static final String CHECK_COUNT_FLYWIREID = "Select Count(1) from FLYWIRE_CUSTOMER_PAYMENT where FLYWIRE_REF_NO = ? ";
+	public static String GET_TRANS_SEQ_NUMBER_For_Flywire = "SELECT '01111'||TO_CHAR(SYSDATE, 'YY')||'TSF'||LPAD(FXOUT_TRAN_SEQ.NEXTVAL,6,'0') AS SEQNUMBER FROM DUAL";
+	//Added by Maithili for Flywire (E)
+	
+	//For Amlock - Samiksha
+	public static final String UPDATE_BEN_REM_OFAC_STATUS_IndoNepal = "UPDATE FXOUT_INB_NSBL_REMBEN_DETAILS SET LAST_MODIFIED_DATE = SYSDATE,  MODIFIED_BY = 'system', BEN_OFAC_STATUS = ?, BEN_OFAC_REMARKS = ?, REM_OFAC_STATUS = ?, REM_OFAC_REMARKS = ? WHERE REFERENCE_NUMBER = ?";
+
+	public static final String SELECT_SWIFTGO_CORRES = "SELECT BANK_NAME FROM FXOUT_BIC_MASTER WHERE BIC_FLAG = 'A' AND CURRENCY = 'USD' AND CHARGE_TYPE ='swiftgo'";
+	public static final String SELECT_USD_CORRES = "SELECT BANK_NAME FROM FXOUT_BIC_MASTER WHERE BIC_FLAG = 'A' AND CURRENCY = 'USD' AND CHARGE_TYPE is null";
+	
+	//Added by Lalit for FTC
+	public static final String GET_TRANS_SEQ_NUMBER_FOR_FTC = "SELECT '01111'||TO_CHAR(SYSDATE, 'YY')||'VS1'||LPAD(FXOUT_TRAN_SEQ.NEXTVAL,6,'0') AS SEQNUMBER FROM DUAL";
+	public static final String CHECK_SOURCE_ID_FTC = "SELECT count(*) check_id FROM FXOUT_INB_TRANSACTION_DETAILS where INB_DETAILS_REF_NO = ?";
+	public static final String INSERT_FTC_REM_BEN_DETAILS = "Insert into FXOUT_INB_REM_BEN_DETAILS (REFERENCE_NUMBER,REM_ACC_NUMBER,REM_NAME,REM_ADDRESS,"
+			+" REM_PIN_CODE,REM_PAN,REM_MOBILE_NUMBER,REM_EMAIL,REM_DOB,BEN_ACC_NUMBER,BEN_DEST_COUNTRY,BEN_DEST_CURRENCY,CREATION_TIME,REM_CIF_CODE,ULTIMATE_BEN_COUNTRY,REQUEST_TYPE)"
+			+" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, sysdate, ?, ?, ?)";
+	
+	public static final String INSERT_FTC_TRANS_REQUEST_DETAILS = "INSERT INTO FXOUT_INB_TRANSACTION_DETAILS"
+			+ "(TXN_REF_NO, INB_DETAILS_REF_NO, CHARGE_AMT, TOTAL_FC_AMT, TOTAL_AMT, GST, TOTAL_DEBIT_AMT, PURPOSE, CREATION_TIME) "
+			+ "VALUES" + "(?, ?, ?, ?, ?, ?, ?, ?, sysdate)";
+	
+	public static final String INSERT_INTO_FXOUT_FTC_CUSTOMER_PAYMENT = "insert into FXOUT_FTC_CUSTOMER_PAYMENT("
+			+" TXN_REF_NO,REM_REF_NO,BEN_REF_NO,TRAN_FC_TYPE,TRAN_FC_DESC,BEN_COUNTRY_DESC,PRESENT_STATUS,STATUS,CREATED_BY,CREATION_DATE,PURPOSE,SUB_PURPOSE_CODE,BEN_COUNTRY_CODE," 
+			+" TRAN_FC_AMOUNT,TOTAL_FC_AMOUNT,TOTAL_INR_AMOUNT,REM_ADDRESS,BANK_CODE,L1_APPROVED_BY,DISP_CHARGE,SERVICE_TAX,TRAN_MODE,DIRECT_EXCHANGE,DISP_EXCHANGE,"
+			+" EXOTIC_EXCHANGE,TCS_AMOUNT,LRS_TOKEN_ID,VISA_NUMBER,VISA_START_DATE,VISA_END_DATE,VISA_ISSUE_AUTH,FLIGHT_NAME,FLIGHT_FROM,FLIGHT_TO,FLIGHT_DATE,PASSPORT_NO,"
+			+" PASSPORT_ISSUE_DATE,PASSPORT_EXP_DATE,PASSPORT_ISSUE_PLACE,MODIFIED_BY,CARD_NO,RELATION_DESC,RISKDESC,OCCUPATION_CODE,OCCUPATION_DESC,CREDIT_FC_AMOUNT,PURPOSE_DESC,"
+			+" CARD_HOLDER_NAME,LRS_ELIGIBLE,REM_OFAC,PURPOSE_OF_TRAVEL,INIT_BRANCH_NO) values "
+			+" (?,?,?,?,?,?,'processing','l1_approved','system',sysdate,?,?,?,?,?,?,?,'00','system',?,?,'INB_FXOUT',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'system',?,?,?,?,?,?,?,?,?,'pending',?,?)";
+	
+	public static final String GET_FTC_TXN_OFAC_STATUS = "SELECT REM_OFAC, Ofac_Remarks, status, PRESENT_STATUS FROM FXOUT_FTC_Customer_Payment WHERE "
+			+ "Txn_Ref_No IN (SELECT TXN_REF_NO FROM FXOUT_INB_TRANSACTION_DETAILS WHERE INB_DETAILS_REF_NO=?)";
+
+	public static final String GET_FTC_LIMIT_FOR_CURRENCY = "SELECT MIN_VALUE FROM FXOUT_FTC_CURRENCY_LIMIT WHERE FTC_CURRENCY=?";
+
+	public static final String INSERT_REMITTER_MASTER = "INSERT INTO FXOUT_REMITTER_MASTER (REM_REF_NO,REM_ACC,REM_NME,REM_ADD1,REM_PIN_NO,REM_PAN_NO,REM_MOBILE,REM_EMAIL,REM_CIF_CODE,BRANCH_CODE,CREATION_DATE)"
+			+ " values "
+			+ " (?,?,?,?,?,?,?,?,?,?,SYSDATE)";
+
+	public static final String GET_CURRENCY_FOR_FTC = "SELECT COUNT(FTC_CURRENCY) FROM FXOUT_FTC_CURRENCY_LIMIT WHERE FTC_CURRENCY=?";
+
+	public static final String GET_PURPOSE_DESC = "SELECT DESCRIPTION FROM FXOUT_RBI_PURPOSE WHERE PURPOSE_CODE=? AND FTC_STATUS='active'";
+
+	//Added by Lalit for YONO
+	public static final String GET_TRANS_SEQ_NUMBER_FOR_YONO = "SELECT '01111'||TO_CHAR(SYSDATE, 'YY')||'TSY'||LPAD(FXOUT_TRAN_SEQ.NEXTVAL,6,'0') AS SEQNUMBER FROM DUAL";
+    
+	//added by vijendra for purpose cdoe
+	public static final String UPDATE_INTONEP_REM_BENDETAILS = "update fxout_inb_nsbl_remben_details set status=?,reason=? where reference_number=?";
+	public static final String GET_STATUS_PURPOSECODE = "SELECT status FROM fxout_nsbl_rbi_purpose_code where purpose_code=?";
+
+	public static final String GET_STATUS_REMCODE = "SELECT TRANSACTOR_CODE_FLAG FROM INSTITUTIONAL_SECTOR_CODE WHERE CODE=?";
+	public static final String GET_STATUS_BENCODE = "SELECT COUNTERPARTY_CODE_FLAG FROM INSTITUTIONAL_SECTOR_CODE WHERE code=?";
+	
+	public static final String CANCEL_YONO_TXN = "update fxout_customer_payment set PRESENT_STATUS=?,STATUS=? where REM_REF_NO=? and PRESENT_STATUS=? and STATUS=?";
+	public static final String GET_YONO_TXN_FOR_CANCEL = "select count(*) from fxout_customer_payment where REM_REF_NO=?";
+	
+	public static final String GET_YONO_TXN_FOR_STATUS_COUNT = "select t1.present_status,t1.status, count(*) over () as count"
+	+" from fxout_customer_payment t1 where t1.REM_REF_NO=?";
+	
+	public static final String GET_MT103MSG="SELECT p.rem_ref_no,case when m.xml_text like 'NO XML' then  m.text else  m.xml_text end as mt103Msg"
+	+" FROM fxout_customer_payment p,fxout_remitter_master r,fxout_ben_account_master b, fxout_message_history m"
+	+" WHERE p.txn_ref_no = m.i20_reference_no AND p.rem_ref_no = r.rem_ref_no AND p.ben_ref_no = b.ben_ref_no AND p.rem_ref_no = ?";
+	
+	public static final String GET_TXN_HISTORY="SELECT  ROW_NUMBER() Over (order by p.creation_date DESC ) As SrNo,p.rem_ref_no AS reference_number,b.ben_name AS beneficiary_name,b.ben_bank_name AS beneficiary_bank_name,b.ben_bank_add1 AS beneficiary_bank_address,b.ben_account_no AS beneficiary_account_number,"
+   +" p.total_inr_amount AS total_inr_amount,p.tran_fc_type AS currency,p.credit_fc_amount AS foreign_currency_amount,p.tcs_amount AS tcs_amount,p.gls_charge_in_fc AS sbi_charges,p.service_tax AS gst_amount,b.ben_bank_swift_code AS swift_code,"
+   +" p.purpose AS purpose_code,p.charge_cal_type AS Charges_Type,p.creation_date AS creation_date,s.creation_time as swift_sent_date,b.ultimate_country_desc AS ultimate_beneficiary_country,p.status AS status_of_payment,p.authorised_remarks as Remark,p.remarks as Transaction_Remarks,r.rem_acc AS remitter_account"
+   +" FROM fxout_customer_payment p,fxout_remitter_master r,fxout_ben_account_master b,fxout_message_history m,swift_outward_msg s"
+   +" WHERE p.txn_ref_no = m.i20_reference_no AND p.rem_ref_no = r.rem_ref_no AND p.ben_ref_no = b.ben_ref_no AND (r.rem_cif_code = ? or p.rem_ref_no=?)"
+   +" AND s.reference_no = p.txn_ref_no AND p.creation_date BETWEEN ? AND ?"
+   +" ORDER BY p.creation_date DESC";
+}
+
+
+package com.sbi.fxout.model;
+
+public class EISYonoRequest {
+	
+	String transactionReferenceID;
+
+	public String getTransactionReferenceID() {
+		return transactionReferenceID;
+	}
+
+	public void setTransactionReferenceID(String transactionReferenceID) {
+		this.transactionReferenceID = transactionReferenceID;
+	}
+	
+	String cifNumber;
+	String strtDte;
+	String endDte;
+
+	public String getCifNumber() {
+		return cifNumber;
+	}
+
+	public void setCifNumber(String cifNumber) {
+		this.cifNumber = cifNumber;
+	}
+
+	public String getStrtDte() {
+		return strtDte;
+	}
+
+	public void setStrtDte(String strtDte) {
+		this.strtDte = strtDte;
+	}
+
+	public String getEndDte() {
+		return endDte;
+	}
+
+	public void setEndDte(String endDte) {
+		this.endDte = endDte;
+	}
+	
+
+}
+package com.sbi.fxout.model;
+
+public class EisEncReq {
+	String eisEncReq;
+
+	public String getEisEncReq() {
+		return eisEncReq;
+	}
+
+	public void setEisEncReq(String eisEncReq) {
+		this.eisEncReq = eisEncReq;
+	}
+
+	
+
+}
+package com.sbi.fxout.model;
+
+public class EISYonoResponse {
+
+	
+	private String transactionReferenceID;
+	private String statusDescription;
+	private String statusCode;
+//	@JsonInclude(Include.NON_NULL)
+////	private String mt103Details;
+//	
+//	public String getMt103Details() {
+//		return mt103Details;
+//	}
+//	public void setMt103Details(String mt103Details) {
+//		this.mt103Details = mt103Details;
+//	}
+	public String getTransactionReferenceID() {
+		return transactionReferenceID;
+	}
+	public void setTransactionReferenceID(String transactionReferenceID) {
+		this.transactionReferenceID = transactionReferenceID;
+	}
+	public String getStatusDescription() {
+		return statusDescription;
+	}
+	public void setStatusDescription(String statusDescription) {
+		this.statusDescription = statusDescription;
+	}
+	public String getStatusCode() {
+		return statusCode;
+	}
+	public void setStatusCode(String statusCode) {
+		this.statusCode = statusCode;
+	}
+	
+
+}
+
