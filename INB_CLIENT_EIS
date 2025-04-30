@@ -1,0 +1,392 @@
+package com.sbi.fxout.main;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.fxout.model.EISYonoRequest;
+import com.sbi.fxout.model.EisEncReq;
+import com.sbi.fxout.model.EisEncResponse;
+import com.sbi.fxout.util.CommonUtil;
+import com.sbi.fxout.util.ErrorCode;
+import com.sbi.fxout.util.FXOUTConstants;
+
+public class YonoEisClient {
+	
+	public static void main(String args[]){
+		YonoEisClient clien=new YonoEisClient();
+		clien.cancelYonoTxn("FXYON202503281215050");
+	}
+	
+	
+	public void cancelYonoTxn(String refNumber){
+		
+		if(null!=refNumber){
+			try {
+			EISYonoRequest eisYonoRequest=new EISYonoRequest();
+			eisYonoRequest.setTransactionReferenceID(refNumber);
+			String encryptedStr = CommonUtil.encrypt(CommonUtil.objectToJson(eisYonoRequest));
+		   EisEncReq request=new EisEncReq();
+		   request.setEisEncReq(encryptedStr);
+		   Map<String, String> resp=callServiceApi(FXOUTConstants.SERVER_URI+ FXOUTConstants.CANCEL_TXN, request);
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+	public Map<String, String> callServiceApi(String urlhit, EisEncReq request) throws IOException {
+		HttpURLConnection conn = null;
+		OutputStream os = null;
+		Map<String, String> response = null;
+		try {
+			URL url = new URL(urlhit);
+			conn = (HttpURLConnection) url.openConnection();
+			conn.setDoOutput(true);
+			conn.setRequestMethod("POST");
+			conn.setRequestProperty("Content-Type", "application/json");
+			os = conn.getOutputStream();
+			// Convert request object in json format
+			ObjectMapper objectMapper = new ObjectMapper();
+			String req = objectMapper.writeValueAsString(request);
+			os.write(req.getBytes());
+			os.flush();
+			os.close();
+
+			int responseCode = conn.getResponseCode();
+			System.out.println("POST Response Code :: " + responseCode);
+
+			if (responseCode == HttpURLConnection.HTTP_OK) { // success
+				BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+				String inputLine;
+				StringBuffer responceEncrypted = new StringBuffer();
+				while ((inputLine = in.readLine()) != null) {
+					responceEncrypted.append(inputLine);
+				}
+				in.close();
+				System.out.println("Encrypted Response: " + responceEncrypted);
+
+				if (responceEncrypted != null && !responceEncrypted.equals("")) {
+
+					EisEncResponse resp = objectMapper.readValue(responceEncrypted.toString(), EisEncResponse.class);
+					String deeypt = CommonUtil.decrypt(resp.getEisEncResp().toString());
+					System.out.println(deeypt);
+					response = (Map<String, String>) CommonUtil.jsonToEndpointRequest(
+							CommonUtil.decrypt(resp.getEisEncResp().toString()), new HashMap<String, String>());
+
+				} else {
+					response = new HashMap<String, String>();
+					response.put(ErrorCode.EMPTYRESPONCE.getStatusCode(), ErrorCode.EMPTYRESPONCE.getMessage());
+					System.out.println("no responce from fxout ");
+				}
+			} else {
+				response = new HashMap<String, String>();
+				response.put(ErrorCode.FXOUTDOWN.getStatusCode(), ErrorCode.FXOUTDOWN.getMessage());
+			}
+		} catch (MalformedURLException e) {
+			response = new HashMap<String, String>();
+			response.put(ErrorCode.FXOUTDOWN.getStatusCode(), ErrorCode.FXOUTDOWN.getMessage());
+			System.out.println("MalformedURLException POST request not worked");
+			e.printStackTrace();
+		} catch (IOException e) {
+			response = new HashMap<String, String>();
+			response.put(ErrorCode.FXOUTDOWN.getStatusCode(), ErrorCode.FXOUTDOWN.getMessage());
+			System.out.println("IOException POST request not worked");
+			e.printStackTrace();
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		} finally {
+			try {
+				if (os != null) {
+					os.flush();
+					os.close();
+				}
+				if (conn != null)
+					conn.disconnect();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return response;
+	}
+
+}
+package com.sbi.fxout.util;
+
+
+public class FXOUTConstants
+{
+	public static final String SERVER_URI = "https://remit.sbi/inbfxout";
+  //public static final String SERVER_URI = "http://localhost:8999/inbfxout";
+  public static final String DO_LOGIN = "/doLogin";
+  public static final String BEN_REGISTRATION = "/auth/doRegistration";
+  public static final String TXN_REQ = "/auth/doTransaction";
+  public static final String DO_ENQUIRY_REG = "/doEnquiryForReg";
+  public static final String DO_ENQUIRY_TRAN = "/doEnquiryForTran";
+  public static final String GET_EXCHANGE_RATE = "/getExchangeRate";
+  public static final String GET_EXCHANGE_RATE_ALL = "/getExchangeRateAll";
+  public static final String SECURITYKEY = "/config/GLS.key";
+  public static final String CHECK_FXOUT_SERVICE = "/checkFXOUTService";
+  public static final String TXN_REQ_IndoNepal = "/auth/doTransactionIndoNepal";
+  public static final String BEN_REGISTRATION_IndoNepal = "/auth/doRegistrationIndoNepal";
+  public static final String DO_ENQUIRY_REG_IndoNepal = "/doEnquiryForRegIndoNepal";
+  public static final String DO_ENQUIRY_TRAN_IndoNepal = "/doEnquiryForTranIndoNepal";
+  public static final String TXN_REQS = "/auth/doTransactions";
+  public static final String DO_ENQUIRY_TRANS = "/doEnquiryForTrans";
+  public static final String CANCEL_TXN = "/eis/txn/cancel";
+}
+package com.sbi.fxout.util;
+
+import java.util.Set;
+import java.util.StringTokenizer;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sbi.fxout.authentication.EncryptionDecryption;
+
+public class CommonUtil {
+
+	public static String objectToJson(Object object) {
+		ObjectMapper mapper = new ObjectMapper();
+		String jsonInString = null;
+
+		try {
+			jsonInString = mapper.writeValueAsString(object).toString();
+			System.out.println("Json Request:" + jsonInString);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return jsonInString;
+	}
+
+	public static Object jsonToEndpointRequest(String jsonInString,
+			Object object) {
+		ObjectMapper mapper = new ObjectMapper();
+
+		try {
+			object = mapper.readValue(jsonInString, object.getClass());
+			System.out.println("Json Response:" + jsonInString);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return object;
+	}
+
+	/**
+	 * @param encData
+	 * @return
+	 */
+	public static String decrypt(String data) {
+		return EncryptionDecryption.decrypt(data);
+	}
+
+	/**
+	 * @param data
+	 * @return
+	 */
+	public static String encrypt(String data) {
+		return EncryptionDecryption.encrypt(data);
+	}
+
+	/**
+	 * It converts comma separated string value to a list for unique values
+	 * Values stored in setOfuniqValue
+	 * 
+	 * @param commaSepValue
+	 * @param setOfuniqValue
+	 * @return void
+	 */
+	public static void commaSeparatedStrToUniqList(String commaSepValue,
+			Set<String> setOfuniqValue) {
+		StringTokenizer st = new StringTokenizer(commaSepValue, ",");
+		while (st.hasMoreTokens())
+			setOfuniqValue.add(st.nextToken());
+	}
+
+}
+package com.sbi.fxout.model;
+
+public class EISYonoRequest {
+	
+
+
+	String transactionReferenceID;
+
+	public String getTransactionReferenceID() {
+		return transactionReferenceID;
+	}
+
+	public void setTransactionReferenceID(String transactionReferenceID) {
+		this.transactionReferenceID = transactionReferenceID;
+	}
+	
+	String cifNumber;
+	String strtDte;
+	String endDte;
+
+	public String getCifNumber() {
+		return cifNumber;
+	}
+
+	public void setCifNumber(String cifNumber) {
+		this.cifNumber = cifNumber;
+	}
+
+	public String getStrtDte() {
+		return strtDte;
+	}
+
+	public void setStrtDte(String strtDte) {
+		this.strtDte = strtDte;
+	}
+
+	public String getEndDte() {
+		return endDte;
+	}
+
+	public void setEndDte(String endDte) {
+		this.endDte = endDte;
+	}
+	
+
+}
+package com.sbi.fxout.model;
+
+public class EisEncReq {
+	String eisEncReq;
+
+	public String getEisEncReq() {
+		return eisEncReq;
+	}
+
+	public void setEisEncReq(String eisEncReq) {
+		this.eisEncReq = eisEncReq;
+	}
+
+	
+
+}
+package com.sbi.fxout.model;
+
+public class EisEncResponse {
+	String statusCode;
+	String eisEncResp;
+	public String getStatusCode() {
+		return statusCode;
+	}
+	public void setStatusCode(String statusCode) {
+		this.statusCode = statusCode;
+	}
+	public String getEisEncResp() {
+		return eisEncResp;
+	}
+	public void setEisEncResp(String eisEncResp) {
+		this.eisEncResp = eisEncResp;
+	}
+
+}
+package com.sbi.fxout.util;
+
+public enum ErrorCode {
+
+	FXOUTDOWN {
+
+		@Override
+		public String getStatusCode() {
+			return "FXOUTERR01";
+		}
+
+		@Override
+		public String getMessage() {
+			return "FXOUT service is not available, please contact admin";
+		}
+
+	},
+	EMPTYRESPONCE {
+
+		@Override
+		public String getStatusCode() {
+			return "FXOUTERR02";
+		}
+
+		@Override
+		public String getMessage() {
+			return "Fxout responce is empty";
+		}
+
+	},
+	EMPTYREQUEST {
+
+		@Override
+		public String getStatusCode() {
+			return "FXOUTERR03";
+		}
+
+		@Override
+		public String getMessage() {
+			return "Empty Request";
+		}
+
+	},
+	TIMEOUT {
+
+		@Override
+		public String getStatusCode() {
+			return "91";
+		}
+
+		@Override
+		public String getMessage() {
+			return "Error in reading responce";
+		}
+
+	},
+	TOKEN_EXPIRED {
+
+		@Override
+		public String getStatusCode() {
+			return "51";
+		}
+
+		@Override
+		public String getMessage() {
+			return "TOKEN EXPIRED";
+		}
+
+	},
+	LOGIN_FAILED {
+
+		@Override
+		public String getStatusCode() {
+			return "54";
+		}
+
+		@Override
+		public String getMessage() {
+			return "LOGIN FAILED";
+		}
+
+	},	COUNTRY_CODE_ERROR {
+
+		@Override
+		public String getStatusCode() {
+			return "55";
+		}
+
+		@Override
+		public String getMessage() {
+			return "Country Code error";
+		}
+
+	};
+
+	public abstract String getStatusCode();
+
+	public abstract String getMessage();
+
+}
